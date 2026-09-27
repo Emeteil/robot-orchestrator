@@ -17,10 +17,10 @@ generated.yml
 *.pem
 *.key
 
-state/
-run/
-logs/
-.sim/
+/state/
+/run/
+/logs/
+/.sim/
 
 wheelhouse/
 sheet/
