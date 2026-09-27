@@ -1,0 +1,17 @@
+# Site-specific overrides for this exact device.
+# Copy to /etc/robot-orchestrator/settings.local.yml and fill in the values
+# discovered by `robot-orchestrator doctor` and by the physical GPIO setup
+# steps in the plan (section 9). Values left as null/commented mean "not
+# configured yet" and the corresponding check is skipped, not treated as an
+# error.
+
+gpio:
+  enabled: false
+  # chip: /dev/gpiochip1
+  # line: 11
+
+hardware:
+  camera:
+    device: auto
+  mcu:
+    serial_glob: "/dev/serial/by-id/usb-STMicroelectronics*"

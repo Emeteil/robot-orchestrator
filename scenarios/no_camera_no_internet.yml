@@ -1,0 +1,6 @@
+name: no_camera_no_internet
+gpio: {forced: null, error: false}
+camera: {present: false}
+microphone: {present: true, usable: true}
+internet: {up: false}
+usb: {stlink: true, mcu_cdc: true, swd_target: true}

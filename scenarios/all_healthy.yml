@@ -1,0 +1,6 @@
+name: all_healthy
+gpio: {forced: null, error: false}
+camera: {present: true}
+microphone: {present: true, usable: true}
+internet: {up: true}
+usb: {stlink: true, mcu_cdc: true, swd_target: true}

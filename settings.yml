@@ -1,0 +1,161 @@
+paths:
+  state_dir: /var/lib/robot-orchestrator
+  log_dir: /var/log/robot-orchestrator
+  run_dir: /run/robot-orchestrator
+
+web:
+  host: 0.0.0.0
+  port: 8080
+  admin_user: admin
+  jwt_ttl_s: 600
+
+gpio:
+  enabled: false
+  chip: null
+  line: null
+  active_low: true
+  bias: pull-up
+  samples: 7
+  sample_interval_ms: 5
+  on_error: nonprod
+
+hardware:
+  camera:
+    device: auto
+    probe_frames: 5
+    probe_timeout_s: 8.0
+  microphone:
+    alsa_card_match: USB
+    probe_seconds: 1.0
+    min_rms: 2.0
+  stlink:
+    usb_ids: ["0483:3748", "0483:374b", "0483:374e", "0483:374f", "0483:3753", "0483:3754"]
+  mcu:
+    usb_ids: ["0483:5740"]
+    serial_glob: "/dev/serial/by-id/usb-STMicroelectronics*"
+    reenumerate_timeout_s: 15.0
+
+network:
+  probes:
+    - "https://api.github.com/zen"
+    - "http://connectivitycheck.gstatic.com/generate_204"
+  timeout_s: 5.0
+  min_ok: 1
+
+secrets:
+  required: ["GEMINI_API_KEY", "GITHUB_PAT"]
+  optional: ["GEMINI_PROXY", "WEBCORE_ADMIN_PASSWORD", "ORCH_ADMIN_PASSWORD"]
+
+qr:
+  scan_timeout_s: 600
+  preview_fps: 3
+  max_parts: 16
+
+updates:
+  fetch_timeout_s: 120
+  rollback_window_s: 120
+
+self_update:
+  enabled: false
+  url: "https://github.com/Emeteil/robot-orchestrator.git"
+  branch: main
+  fetch_timeout_s: 120
+
+kiosk:
+  operator_url: "http://127.0.0.1:80/?token={secret.MASTER_TOKEN}"
+
+repos:
+  - name: web-core
+    url: https://github.com/Emeteil/izbushka-web-core.git
+    branch: main
+    python:
+      requirements: ["requirements.txt"]
+      pip_no_deps: []
+    persistent: {database: database, logs: logs}
+    validate_cmds: ["{venv}/bin/python -m compileall -q -x '(^|/)\\.git/' ."]
+    restart_on_change: [web-core]
+    triggers_on_change: ["verify:stm32"]
+  - name: voice-interface
+    url: https://github.com/Emeteil/izbushka-voice-interface.git
+    branch: main
+    python:
+      requirements: ["requirements.txt"]
+      pip_no_deps: [openwakeword]
+    persistent: {storage: storage}
+    restart_on_change: [voice-interface]
+  - name: com-link-RT
+    url: https://github.com/Emeteil/com-link-RT.git
+    branch: robot
+    python: null
+    triggers_on_change: ["flash:stm32"]
+
+services:
+  - name: web-core
+    repo: web-core
+    cmd: ["{venv}/bin/python", "main.py"]
+    env: {PYTHONUNBUFFERED: "1", IZB_SETTINGS_OVERLAY: "{run}/overlays/web-core.yml"}
+    secret_env: [flask_secret, MASTER_TOKEN]
+    depends_on: []
+    holds_devices: [camera, mcu_serial]
+    ready: {type: http, url: "http://127.0.0.1:80/api/admin/ping", timeout_s: 90}
+    stop: {signal: SIGINT, timeout_s: 10}
+    restart:
+      backoff_initial_s: 1
+      backoff_max_s: 60
+      stable_after_s: 120
+      max_in_window: 6
+      window_s: 300
+      failed_cooldown_s: 600
+    overlay:
+      production: "{mode.production}"
+      open_browser_on_start: false
+      com_link_rt_port: "{hw.mcu_port}"
+      webcam: {device: "{hw.camera_device}"}
+      load_dotenv: false
+  - name: voice-interface
+    repo: voice-interface
+    cmd: ["{venv}/bin/python", "main.py"]
+    env: {PYTHONUNBUFFERED: "1", IZB_SETTINGS_OVERLAY: "{run}/overlays/voice-interface.yml"}
+    secret_env: [GEMINI_API_KEY, GEMINI_PROXY, MASTER_TOKEN]
+    depends_on: [{service: web-core, condition: ready}]
+    holds_devices: [microphone]
+    ready: {type: http_json, url: "http://127.0.0.1:80/api/admin/health", path: "data.voice.connected", timeout_s: 180}
+    enabled_when: "capabilities.voice_interface"
+    overlay:
+      production: "{mode.production}"
+      wake_word_settings: {enabled: "{mode.production}"}
+      web_core: {host: 127.0.0.1, port: 80}
+      load_dotenv: false
+  - name: kiosk
+    repo: null
+    cmd: ["chromium", "--kiosk", "--noerrdialogs", "--disable-infobars", "--no-first-run",
+          "--disable-session-crashed-bubble", "--check-for-update-interval=31536000",
+          "--password-store=basic", "--autoplay-policy=no-user-gesture-required",
+          "--user-data-dir={run}/kiosk-profile",
+          "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9222",
+          "http://127.0.0.1:8080/boot"]
+    phase: early
+    requires: [x11]
+
+firmware_targets:
+  - name: stm32
+    repo: com-link-RT
+    pio_env: black_f407ve
+    ci:
+      owner: Emeteil
+      repo: com-link-RT
+      workflow_file: build.yml
+      artifact_name: firmware-black_f407ve
+      wait_for_running_s: 300
+    flash:
+      interface_cfg: interface/stlink.cfg
+      target_cfg: target/stm32f4x.cfg
+      image: firmware.elf
+      attempts: 2
+      timeout_s: 90
+    verify:
+      client_repo: web-core
+      client_subdir: com_link_rt
+      local_build_tolerance_s: 120
+      ping_tries: 3
+    requires_stopped: [web-core]

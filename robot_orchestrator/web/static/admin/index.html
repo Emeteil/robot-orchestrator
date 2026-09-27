@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>robot-orchestrator — admin</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0b0f14; color: #e6edf3; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; padding: 14px 20px;
+    border-bottom: 1px solid #21262d; position: sticky; top: 0; background: #0b0f14; z-index: 5;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .status { font-size: 13px; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+  header .status.prod { background: #103a1f; color: #6bd97a; }
+  header .status.nonprod { background: #3a2f10; color: #f2c94c; }
+  header .status.unknown { background: #12202f; color: #7fb3e0; }
+  header button { background: none; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  nav { display: flex; gap: 4px; padding: 10px 20px; border-bottom: 1px solid #21262d; overflow-x: auto; }
+  nav button {
+    background: none; border: none; color: #8b949e; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 14px;
+  }
+  nav button.active { background: #161b22; color: #e6edf3; }
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  section { display: none; }
+  section.active { display: block; }
+  .card { background: #10151c; border: 1px solid #21262d; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; font-weight: 500; }
+  code, pre { background: #161b22; border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+  pre { padding: 10px; overflow-x: auto; white-space: pre-wrap; max-height: 400px; }
+  button.action {
+    background: #1f6feb; border: none; color: white; padding: 6px 12px; border-radius: 6px;
+    cursor: pointer; font-size: 13px; margin-right: 6px;
+  }
+  button.action.danger { background: #a13a3a; }
+  button.action.secondary { background: #30363d; }
+  input, select {
+    background: #0b0f14; border: 1px solid #30363d; color: #e6edf3; padding: 8px 10px; border-radius: 6px;
+    font-size: 14px; width: 100%;
+  }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 4px; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+  .pill.ok { background: #103a1f; color: #6bd97a; }
+  .pill.bad { background: #3a1010; color: #f28b8b; }
+  .msg { font-size: 13px; margin-top: 8px; color: #8b949e; }
+  .msg.error { color: #f28b8b; }
+  .msg.success { color: #6bd97a; }
+  #login-overlay {
+    position: fixed; inset: 0; background: #0b0f14; display: flex; align-items: center; justify-content: center; z-index: 20;
+  }
+  #login-overlay .card { width: min(360px, 90vw); }
+  #login-overlay h2 { margin-top: 0; font-size: 18px; }
+  .default-password-warning {
+    background: #3a2f10; color: #f2c94c; border: 1px solid #5e4d1e; border-radius: 8px; padding: 10px 14px;
+    font-size: 13px; margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+
+<div id="login-overlay">
+  <div class="card">
+    <h2>robot-orchestrator</h2>
+    <div class="field">
+      <label>Пользователь</label>
+      <input id="login-username" value="admin">
+    </div>
+    <div class="field">
+      <label>Пароль</label>
+      <input id="login-password" type="password">
+    </div>
+    <button class="action" onclick="login()">Войти</button>
+    <div id="login-msg" class="msg"></div>
+  </div>
+</div>
+
+<header>
+  <h1>robot-orchestrator</h1>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span id="mode-status" class="status unknown">—</span>
+    <button onclick="logout()">Выйти</button>
+  </div>
+</header>
+
+<nav id="nav"></nav>
+
+<main>
+  <div id="default-password-warning" class="default-password-warning" style="display:none;">
+    Пароль администратора всё ещё стандартный. Смените его в разделе «Настройки».
+  </div>
+
+  <section id="sec-overview" class="active">
+    <div class="card">
+      <table><tbody id="overview-table"></tbody></table>
+    </div>
+  </section>
+
+  <section id="sec-services">
+    <div class="card">
+      <table>
+        <thead><tr><th>Сервис</th><th>Статус</th><th>PID</th><th>Код выхода</th><th></th></tr></thead>
+        <tbody id="services-table"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="sec-repos">
+    <div class="card">
+      <table>
+        <thead><tr><th>Репозиторий</th><th>Ветка</th><th>Текущий SHA</th><th>Предыдущий SHA</th><th>Ошибка</th><th></th></tr></thead>
+        <tbody id="repos-table"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="sec-firmware">
+    <div class="card">
+      <table>
+        <thead><tr><th>Таргет</th><th>Прошитый SHA</th><th>Метод</th><th>Verified</th><th>Dirty</th><th></th></tr></thead>
+        <tbody id="firmware-table"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="sec-logs">
+    <div class="card">
+      <div class="field">
+        <label>Сервис</label>
+        <select id="log-service-select" onchange="loadLogs()"></select>
+      </div>
+      <pre id="log-output">—</pre>
+    </div>
+  </section>
+
+  <section id="sec-secrets">
+    <div class="card">
+      <h3 style="margin-top:0;">Обязательные</h3>
+      <table><tbody id="secrets-required-table"></tbody></table>
+      <h3>Опциональные</h3>
+      <table><tbody id="secrets-optional-table"></tbody></table>
+      <button class="action" onclick="rescanSecrets()">Rescan QR</button>
+      <div id="secrets-msg" class="msg"></div>
+    </div>
+  </section>
+
+  <section id="sec-wifi">
+    <div class="card">
+      <div id="wifi-lists"></div>
+      <button class="action" onclick="connectWifi()">Подключиться к известной сети</button>
+      <div id="wifi-msg" class="msg"></div>
+    </div>
+  </section>
+
+  <section id="sec-journal">
+    <div class="card">
+      <table>
+        <thead><tr><th>op_type</th><th>subject</th><th>phase</th><th>error</th></tr></thead>
+        <tbody id="journal-table"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="sec-settings">
+    <div class="card">
+      <h3 style="margin-top:0;">Сменить пароль</h3>
+      <div class="field"><label>Текущий пароль</label><input id="pw-current" type="password"></div>
+      <div class="field"><label>Новый пароль</label><input id="pw-new" type="password"></div>
+      <button class="action" onclick="changePassword()">Сменить</button>
+      <div id="pw-msg" class="msg"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0;">Оркестратор</h3>
+      <button class="action danger" onclick="restartOrchestrator()">Restart orchestrator</button>
+      <div id="restart-msg" class="msg"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0;">Самообновление оркестратора</h3>
+      <div id="self-update-info"></div>
+      <button class="action secondary" onclick="checkSelfUpdate()">Check now</button>
+      <button class="action danger" onclick="applySelfUpdate()">Apply staged update</button>
+      <div id="self-update-msg" class="msg"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const TABS = [
+  ["overview", "Overview"], ["services", "Services"], ["repos", "Repositories"],
+  ["firmware", "Firmware"], ["logs", "Logs"], ["secrets", "Secrets"],
+  ["wifi", "Wi-Fi"], ["journal", "Journal"], ["settings", "Settings"],
+];
+
+function token() { return sessionStorage.getItem("ro_token"); }
+function setToken(t) { sessionStorage.setItem("ro_token", t); }
+function clearToken() { sessionStorage.removeItem("ro_token"); }
+
+async function api(path, options = {}) {
+  const headers = Object.assign({}, options.headers, { Authorization: "Bearer " + token() });
+  if (options.body) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, Object.assign({}, options, { headers }));
+  if (res.status === 401) {
+    showLogin();
+    throw new Error("unauthorized");
+  }
+  return res;
+}
+
+function buildNav() {
+  const nav = document.getElementById("nav");
+  for (const [id, label] of TABS) {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.onclick = () => selectTab(id);
+    btn.dataset.tab = id;
+    nav.appendChild(btn);
+  }
+  selectTab("overview");
+}
+
+function selectTab(id) {
+  for (const el of document.querySelectorAll("section")) el.classList.remove("active");
+  for (const el of document.querySelectorAll("nav button")) el.classList.remove("active");
+  document.getElementById("sec-" + id).classList.add("active");
+  document.querySelector(`nav button[data-tab="${id}"]`).classList.add("active");
+  refreshTab(id);
+}
+
+function refreshTab(id) {
+  const loaders = {
+    overview: loadOverview, services: loadServices, repos: loadRepos,
+    firmware: loadFirmware, logs: loadLogs, secrets: loadSecrets,
+    wifi: loadWifi, journal: loadJournal, settings: loadSelfUpdate,
+  };
+  (loaders[id] || (() => {}))();
+}
+
+function showLogin() {
+  document.getElementById("login-overlay").style.display = "flex";
+}
+
+function hideLogin() {
+  document.getElementById("login-overlay").style.display = "none";
+}
+
+async function login() {
+  const username = document.getElementById("login-username").value;
+  const password = document.getElementById("login-password").value;
+  const msg = document.getElementById("login-msg");
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      msg.textContent = "Неверный логин/пароль";
+      msg.className = "msg error";
+      return;
+    }
+    const body = await res.json();
+    setToken(body.access_token);
+    msg.textContent = "";
+    hideLogin();
+    boot();
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "msg error";
+  }
+}
+
+function logout() {
+  clearToken();
+  showLogin();
+}
+
+async function loadOverview() {
+  const res = await api("/api/state");
+  const data = await res.json();
+  const tbody = document.getElementById("overview-table");
+  tbody.innerHTML = "";
+  const statusEl = document.getElementById("mode-status");
+  if (!data.boot) {
+    statusEl.textContent = "booting"; statusEl.className = "status unknown";
+    tbody.innerHTML = "<tr><td>boot</td><td>ещё не завершён</td></tr>";
+    return;
+  }
+  statusEl.textContent = data.production ? "PROD" : "NON-PROD";
+  statusEl.className = "status " + (data.production ? "prod" : "nonprod");
+  const rows = [
+    ["boot_id", data.boot_id],
+    ["production", String(data.production)],
+    ["reasons", (data.reasons || []).join(", ") || "—"],
+    ["capabilities", JSON.stringify(data.capabilities)],
+    ["services_ready", JSON.stringify(data.services_ready)],
+  ];
+  for (const [k, v] of rows) {
+    tbody.innerHTML += `<tr><th>${k}</th><td><code>${v}</code></td></tr>`;
+  }
+}
+
+async function loadServices() {
+  const res = await api("/api/services");
+  const services = await res.json();
+  const tbody = document.getElementById("services-table");
+  tbody.innerHTML = "";
+  for (const s of services) {
+    tbody.innerHTML += `
+      <tr>
+        <td>${s.name}</td><td>${s.state}</td><td>${s.pid ?? "—"}</td><td>${s.last_exit_code ?? "—"}</td>
+        <td>
+          <button class="action" onclick="serviceAction('${s.name}','start')">Start</button>
+          <button class="action secondary" onclick="serviceAction('${s.name}','restart')">Restart</button>
+          <button class="action danger" onclick="serviceAction('${s.name}','stop')">Stop</button>
+        </td>
+      </tr>`;
+  }
+}
+
+async function serviceAction(name, action) {
+  await api(`/api/services/${name}/${action}`, { method: "POST" });
+  loadServices();
+}
+
+async function loadRepos() {
+  const res = await api("/api/repos");
+  const repos = await res.json();
+  const tbody = document.getElementById("repos-table");
+  tbody.innerHTML = "";
+  for (const r of repos) {
+    tbody.innerHTML += `
+      <tr>
+        <td>${r.name}</td><td>${r.branch}</td>
+        <td><code>${(r.current_sha || "—").slice(0, 12)}</code></td>
+        <td><code>${(r.previous_sha || "—").slice(0, 12)}</code></td>
+        <td>${r.last_error || "—"}</td>
+        <td>
+          <button class="action secondary" onclick="repoAction('${r.name}','check')">Check</button>
+          <button class="action" onclick="repoAction('${r.name}','apply')">Apply</button>
+          <button class="action danger" onclick="repoAction('${r.name}','rollback')">Rollback</button>
+        </td>
+      </tr>`;
+  }
+}
+
+async function repoAction(name, action) {
+  const res = await api(`/api/repos/${name}/${action}`, { method: "POST" });
+  const body = await res.json();
+  alert(JSON.stringify(body));
+  loadRepos();
+}
+
+async function loadFirmware() {
+  const res = await api("/api/firmware");
+  const targets = await res.json();
+  const tbody = document.getElementById("firmware-table");
+  tbody.innerHTML = "";
+  for (const t of targets) {
+    tbody.innerHTML += `
+      <tr>
+        <td>${t.name}</td><td><code>${(t.flashed_sha || "—").slice(0, 12)}</code></td><td>${t.method || "—"}</td>
+        <td><span class="pill ${t.verified ? "ok" : "bad"}">${t.verified ? "yes" : "no"}</span></td>
+        <td><span class="pill ${t.dirty ? "bad" : "ok"}">${t.dirty ? "yes" : "no"}</span></td>
+        <td>
+          <button class="action secondary" onclick="firmwareAction('${t.name}','reverify')">Re-verify</button>
+          <button class="action danger" onclick="firmwareAction('${t.name}','reflash')">Force reflash</button>
+        </td>
+      </tr>`;
+  }
+}
+
+async function firmwareAction(name, action) {
+  const res = await api(`/api/firmware/${name}/${action}`, { method: "POST" });
+  const body = await res.json();
+  alert(JSON.stringify(body));
+  loadFirmware();
+}
+
+async function loadLogs() {
+  const select = document.getElementById("log-service-select");
+  if (!select.dataset.filled) {
+    const res = await api("/api/services");
+    const services = await res.json();
+    select.innerHTML = services.map((s) => `<option value="${s.name}">${s.name}</option>`).join("");
+    select.dataset.filled = "1";
+  }
+  const name = select.value;
+  if (!name) return;
+  const res = await api(`/api/logs/${name}?lines=300`);
+  const body = await res.json();
+  document.getElementById("log-output").textContent = body.lines.join("\n") || "(пусто)";
+}
+
+async function loadSecrets() {
+  const res = await api("/api/secrets");
+  const data = await res.json();
+  document.getElementById("default-password-warning").style.display = data.is_default_password ? "block" : "none";
+  const fill = (id, items) => {
+    document.getElementById(id).innerHTML = items.map(
+      (i) => `<tr><td>${i.key}</td><td><span class="pill ${i.present ? "ok" : "bad"}">${i.present ? "есть" : "нет"}</span></td></tr>`
+    ).join("");
+  };
+  fill("secrets-required-table", data.required);
+  fill("secrets-optional-table", data.optional);
+}
+
+async function rescanSecrets() {
+  const msg = document.getElementById("secrets-msg");
+  msg.textContent = "Сканирование...";
+  msg.className = "msg";
+  try {
+    const res = await api("/api/secrets/rescan", { method: "POST" });
+    const body = await res.json();
+    msg.textContent = body.scanned ? "Секреты применены" : "QR не отсканирован (таймаут/отмена)";
+    msg.className = body.scanned ? "msg success" : "msg error";
+    loadSecrets();
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "msg error";
+  }
+}
+
+async function loadWifi() {
+  const res = await api("/api/wifi");
+  const data = await res.json();
+  document.getElementById("wifi-lists").innerHTML = `
+    <p><strong>Известные сети:</strong> ${data.known_ssids.join(", ") || "нет"}</p>
+    <p><strong>Видимые сети:</strong> ${data.visible_ssids.join(", ") || "нет"}</p>`;
+}
+
+async function connectWifi() {
+  const msg = document.getElementById("wifi-msg");
+  msg.textContent = "Подключение...";
+  try {
+    const res = await api("/api/wifi/connect", { method: "POST" });
+    const body = await res.json();
+    msg.textContent = body.connected_ssid ? `Подключено: ${body.connected_ssid}` : "Не удалось подключиться";
+    msg.className = body.connected_ssid ? "msg success" : "msg error";
+    loadWifi();
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "msg error";
+  }
+}
+
+async function loadJournal() {
+  const res = await api("/api/journal?limit=50");
+  const rows = await res.json();
+  document.getElementById("journal-table").innerHTML = rows.map(
+    (r) => `<tr><td>${r.op_type}</td><td>${r.subject}</td><td>${r.phase}</td><td>${r.error || "—"}</td></tr>`
+  ).join("");
+}
+
+async function changePassword() {
+  const msg = document.getElementById("pw-msg");
+  try {
+    const res = await api("/api/settings/password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: document.getElementById("pw-current").value,
+        new_password: document.getElementById("pw-new").value,
+      }),
+    });
+    if (!res.ok) {
+      msg.textContent = "Не удалось сменить пароль (проверьте текущий пароль)";
+      msg.className = "msg error";
+      return;
+    }
+    msg.textContent = "Пароль изменён";
+    msg.className = "msg success";
+    document.getElementById("pw-current").value = "";
+    document.getElementById("pw-new").value = "";
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "msg error";
+  }
+}
+
+async function loadSelfUpdate() {
+  try {
+    const res = await api("/api/self-update");
+    const data = await res.json();
+    const info = document.getElementById("self-update-info");
+    info.innerHTML = `
+      <p><strong>Включено:</strong> ${data.enabled ? "да" : "нет"}</p>
+      <p><strong>Текущая версия:</strong> <code>${(data.current_sha || "—").slice(0, 12)}</code></p>
+      <p><strong>Готова к применению:</strong> <code>${(data.staged_sha || "нет").slice(0, 12)}</code></p>
+      ${data.error ? `<p style="color:#f28b8b;">${data.error}</p>` : ""}`;
+  } catch (e) {
+    document.getElementById("self-update-info").textContent = String(e);
+  }
+}
+
+async function checkSelfUpdate() {
+  const msg = document.getElementById("self-update-msg");
+  msg.textContent = "Проверка...";
+  try {
+    const res = await api("/api/self-update/check", { method: "POST" });
+    const body = await res.json();
+    msg.textContent = body.staged_sha ? `Готово к применению: ${body.staged_sha.slice(0, 12)}` : (body.error || "Обновлений нет");
+    msg.className = body.error ? "msg error" : "msg success";
+    loadSelfUpdate();
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "msg error";
+  }
+}
+
+async function applySelfUpdate() {
+  if (!confirm("Применить обновление и перезапустить оркестратор?")) return;
+  const msg = document.getElementById("self-update-msg");
+  try {
+    const res = await api("/api/self-update/apply", { method: "POST" });
+    const body = await res.json();
+    msg.textContent = body.applied ? "Применено, оркестратор перезапускается" : "Нет готового к применению обновления";
+    msg.className = body.applied ? "msg success" : "msg error";
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "msg error";
+  }
+}
+
+async function restartOrchestrator() {
+  if (!confirm("Перезапустить оркестратор?")) return;
+  const msg = document.getElementById("restart-msg");
+  try {
+    await api("/api/system/restart", { method: "POST" });
+    msg.textContent = "Запрошен перезапуск";
+    msg.className = "msg success";
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "msg error";
+  }
+}
+
+function boot() {
+  hideLogin();
+  refreshTab(document.querySelector("nav button.active")?.dataset.tab || "overview");
+  setInterval(() => refreshTab(document.querySelector("nav button.active")?.dataset.tab || "overview"), 5000);
+}
+
+buildNav();
+if (token()) { boot(); } else { showLogin(); }
+</script>
+</body>
+</html>

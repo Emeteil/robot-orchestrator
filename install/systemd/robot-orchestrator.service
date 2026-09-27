@@ -1,0 +1,25 @@
+[Unit]
+Description=robot-orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+WatchdogSec=60
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=0
+KillMode=control-group
+TimeoutStopSec=40
+User=robot
+Group=robot
+SupplementaryGroups=video audio dialout plugdev gpio render input
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+RuntimeDirectory=robot-orchestrator
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/robot/.Xauthority
+WorkingDirectory=/opt/robot-orchestrator
+ExecStart=/opt/robot-orchestrator/run.sh
+
+[Install]
+WantedBy=multi-user.target
