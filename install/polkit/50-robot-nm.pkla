@@ -1,0 +1,6 @@
+[Allow robot user to control NetworkManager Wi-Fi without authentication]
+Identity=unix-user:robot
+Action=org.freedesktop.NetworkManager.enable-disable-wifi;org.freedesktop.NetworkManager.network-control;org.freedesktop.NetworkManager.wifi.scan;org.freedesktop.NetworkManager.settings.modify.own
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes

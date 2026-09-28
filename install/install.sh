@@ -35,7 +35,7 @@ fi
 echo "==> installing apt packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-xargs -a "${INSTALL_DIR}/install/apt-packages.txt" apt-get install -y
+xargs -a "${INSTALL_DIR}/install/apt-packages.txt" apt-get install -y --no-upgrade
 
 if ! dpkg -s chromium >/dev/null 2>&1 && ! dpkg -s chromium-browser >/dev/null 2>&1; then
     if snap list chromium >/dev/null 2>&1; then
@@ -66,6 +66,7 @@ mkdir -p "${STATE_DIR}/bootstrap" "${STATE_DIR}/secrets" "${STATE_DIR}/repos" "$
     "${LOG_DIR}/services" "${RUN_DIR}/overlays" "${ETC_DIR}"
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${STATE_DIR}" "${LOG_DIR}" "${RUN_DIR}"
 chmod 0700 "${STATE_DIR}/secrets"
+chown "root:${SERVICE_USER}" "${ETC_DIR}"
 chmod 0750 "${ETC_DIR}"
 if [ ! -f "${ETC_DIR}/settings.local.yml" ]; then
     install -m 0640 -o root -g "${SERVICE_USER}" "${INSTALL_DIR}/install/settings.local.yml.template" "${ETC_DIR}/settings.local.yml"
@@ -131,7 +132,13 @@ fi
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "/home/${SERVICE_USER}/.config"
 
 echo "==> installing polkit rule for Wi-Fi"
-install -m 0644 "${INSTALL_DIR}/install/polkit/50-robot-nm.rules" /etc/polkit-1/rules.d/50-robot-nm.rules
+if [ -d /etc/polkit-1/rules.d ]; then
+    install -m 0644 "${INSTALL_DIR}/install/polkit/50-robot-nm.rules" /etc/polkit-1/rules.d/50-robot-nm.rules
+elif [ -d /etc/polkit-1/localauthority/50-local.d ]; then
+    install -m 0644 "${INSTALL_DIR}/install/polkit/50-robot-nm.pkla" /etc/polkit-1/localauthority/50-local.d/50-robot-nm.pkla
+else
+    echo "warning: neither /etc/polkit-1/rules.d nor /etc/polkit-1/localauthority/50-local.d exists -- skipping polkit rule, Wi-Fi control may prompt for auth" >&2
+fi
 
 echo "==> configuring ALSA"
 USB_CARD="$(arecord -l 2>/dev/null | grep -i usb | head -1 | sed -n 's/^card \([0-9]*\).*/\1/p')"
