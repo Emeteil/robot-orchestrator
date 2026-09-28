@@ -11,6 +11,16 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+def parse_line(service: str, raw: str) -> dict:
+    ts_str, _, rest = raw.partition(" ")
+    stream, _, text = rest.partition(" ")
+    try:
+        ts = float(ts_str)
+    except ValueError:
+        ts = 0.0
+    return {"ts": ts, "service": service, "stream": stream, "text": text}
+
+
 class LogSink:
     def __init__(self, log_file: Path, max_lines: int = 5000, max_bytes: int = 10 * 1024 * 1024, backups: int = 5):
         log_file.parent.mkdir(parents=True, exist_ok=True)

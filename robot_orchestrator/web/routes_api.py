@@ -9,6 +9,7 @@ from robot_orchestrator.secrets import store as secrets_store
 from robot_orchestrator.secrets.ingest import ingest_payload
 from robot_orchestrator.secrets.protocol import SecretsPayload
 from robot_orchestrator.state import store
+from robot_orchestrator.supervisor.logsink import parse_line
 from robot_orchestrator.supervisor.service import ServiceState
 from robot_orchestrator.web import auth
 from robot_orchestrator.web.context import AdminContext
@@ -124,13 +125,29 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
         c = _require(context)
         manager = _require_repo_manager(c, name)
         result = manager.sync()
-        return {"changed": result.changed, "sha": result.sha, "error": result.error}
+        # a synced repo only lands in a new releases/<sha> directory; the running
+        # service still has its old cwd bound from registration at boot, so picking
+        # up the new release requires a full orchestrator restart, not just a
+        # supervisor-level service restart (which would just re-launch the old cwd).
+        restart_requested = False
+        if result.changed and result.error is None and c.request_restart is not None:
+            c.request_restart()
+            restart_requested = True
+        return {
+            "changed": result.changed, "sha": result.sha, "error": result.error,
+            "restart_requested": restart_requested,
+        }
 
     @app.post("/api/repos/{name}/rollback")
     def rollback_repo(name: str, claims: dict = Depends(require_auth)):
         c = _require(context)
         manager = _require_repo_manager(c, name)
-        return {"rolled_back": manager.rollback()}
+        rolled_back = manager.rollback()
+        restart_requested = False
+        if rolled_back and c.request_restart is not None:
+            c.request_restart()
+            restart_requested = True
+        return {"rolled_back": rolled_back, "restart_requested": restart_requested}
 
     @app.get("/api/firmware")
     def list_firmware(claims: dict = Depends(require_auth)):
@@ -161,10 +178,18 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
     @app.get("/api/logs/{service}")
     def get_logs(service: str, lines: int = 500, claims: dict = Depends(require_auth)):
         c = _require(context)
+        if service == "all":
+            merged = [
+                parse_line(name, raw)
+                for name, sink in c.supervisor.log_sinks.items()
+                for raw in sink.tail(lines)
+            ]
+            merged.sort(key=lambda item: item["ts"])
+            return {"lines": merged[-lines:]}
         sink = c.supervisor.log_sinks.get(service)
         if sink is None:
             raise HTTPException(status_code=404, detail=f"unknown service {service!r}")
-        return {"lines": sink.tail(lines)}
+        return {"lines": [parse_line(service, raw) for raw in sink.tail(lines)]}
 
     @app.get("/api/journal")
     def get_journal(limit: int = 50, claims: dict = Depends(require_auth)):

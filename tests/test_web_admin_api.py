@@ -341,7 +341,9 @@ async def test_logs_tail_contains_startup_lines(env):
         headers = await _auth_headers(client)
         response = await client.get("/api/logs/demo?lines=50", headers=headers)
         assert response.status_code == 200
-        joined = "\n".join(response.json()["lines"])
+        lines = response.json()["lines"]
+        assert all(item["service"] == "demo" for item in lines)
+        joined = "\n".join(item["text"] for item in lines)
         assert "listening" in joined
 
 
