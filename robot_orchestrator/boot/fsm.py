@@ -100,7 +100,9 @@ class BootSequence:
         await self._maybe_scan_qr(facts)
 
         self.progress.step = "probing_hardware"
-        camera_device = resolve_camera_device(self.settings.hardware.camera, self.hal.camera_probe)
+        camera_device = await asyncio.to_thread(
+            resolve_camera_device, self.settings.hardware.camera, self.hal.camera_probe
+        )
         await asyncio.to_thread(self._probe_hardware, facts, camera_device)
 
         self.progress.step = "updating_repos"

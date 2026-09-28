@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -7,6 +8,8 @@ from robot_orchestrator.config import CameraConfig, McuConfig
 from robot_orchestrator.hal.base import CameraProbe, UsbInventory
 
 UdevQueryT = Callable[[Path, str], "str | None"]
+CAMERA_RESOLVE_RETRY_ATTEMPTS = 5
+CAMERA_RESOLVE_RETRY_DELAY_S = 1.5
 
 
 def resolve_chromium_bin(which: Callable[[str], "str | None"] = shutil.which) -> str:
@@ -23,6 +26,16 @@ def resolve_camera_device(
 ) -> str | None:
     if config.device != "auto":
         return config.device
+    for attempt in range(CAMERA_RESOLVE_RETRY_ATTEMPTS):
+        if attempt > 0:
+            time.sleep(CAMERA_RESOLVE_RETRY_DELAY_S)
+        device = _resolve_camera_device_once(config, probe, by_id_dir)
+        if device is not None:
+            return device
+    return None
+
+
+def _resolve_camera_device_once(config: CameraConfig, probe: CameraProbe, by_id_dir: Path) -> str | None:
     if not by_id_dir.exists():
         return None
     for candidate in sorted(by_id_dir.glob("*")):
