@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import json
 import os
@@ -85,13 +86,13 @@ class BootSequence:
         facts = BootFacts()
         facts.gpio_forced = self._read_gpio()
 
-        self._maybe_scan_qr(facts)
+        await self._maybe_scan_qr(facts)
 
         camera_device = resolve_camera_device(self.settings.hardware.camera, self.hal.camera_probe)
-        self._probe_hardware(facts, camera_device)
+        await asyncio.to_thread(self._probe_hardware, facts, camera_device)
 
-        self._update_repos(facts)
-        self._run_firmware_targets(facts)
+        await asyncio.to_thread(self._update_repos, facts)
+        await asyncio.to_thread(self._run_firmware_targets, facts)
 
         mode = decide_mode(facts)
 
@@ -127,11 +128,11 @@ class BootSequence:
         except Exception:
             return gpio_cfg.on_error == "nonprod"
 
-    def _maybe_scan_qr(self, facts: BootFacts) -> None:
+    async def _maybe_scan_qr(self, facts: BootFacts) -> None:
         required = self.settings.secrets.required
         missing = secrets_store.missing_required_secrets(self.paths, required)
         if missing and self.scan_qr is not None:
-            payload = self.scan_qr()
+            payload = await asyncio.to_thread(self.scan_qr)
             if payload is not None:
                 ingest_payload(self.paths, self.journal, payload)
                 missing = secrets_store.missing_required_secrets(self.paths, required)
