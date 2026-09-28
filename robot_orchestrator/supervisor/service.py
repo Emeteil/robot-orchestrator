@@ -32,18 +32,24 @@ class ManagedService:
     async def start(self) -> None:
         self.state = ServiceState.STARTING
         self.last_exit_code = None
+        self.process = None
+        self._pump_tasks = []
         spawn_kwargs = {}
         if os.name != "nt":
             spawn_kwargs["start_new_session"] = True
-        self.process = await asyncio.create_subprocess_exec(
-            *self.config.cmd,
-            cwd=str(self.cwd),
-            env=self.env,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            **spawn_kwargs,
-        )
+        try:
+            self.process = await asyncio.create_subprocess_exec(
+                *self.config.cmd,
+                cwd=str(self.cwd),
+                env=self.env,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                **spawn_kwargs,
+            )
+        except OSError as e:
+            self.log_sink.write("stderr", f"failed to spawn: {e}\n")
+            return
         self._pump_tasks = [
             asyncio.create_task(self._pump(self.process.stdout, "stdout")),
             asyncio.create_task(self._pump(self.process.stderr, "stderr")),
@@ -57,6 +63,9 @@ class ManagedService:
             self.log_sink.write(name, line.decode(errors="replace"))
 
     async def wait_exit(self) -> int:
+        if self.process is None:
+            self.last_exit_code = 127
+            return self.last_exit_code
         exit_code = await self.process.wait()
         await asyncio.gather(*self._pump_tasks, return_exceptions=True)
         self.last_exit_code = exit_code

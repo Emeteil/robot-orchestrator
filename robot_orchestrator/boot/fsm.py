@@ -9,7 +9,7 @@ from typing import Callable
 
 from robot_orchestrator.boot.context import BootFacts
 from robot_orchestrator.boot.decision import ModeDecision, decide_mode
-from robot_orchestrator.boot.hardware import resolve_camera_device, resolve_mcu_port
+from robot_orchestrator.boot.hardware import resolve_camera_device, resolve_chromium_bin, resolve_mcu_port
 from robot_orchestrator.config import Settings
 from robot_orchestrator.hal.base import ProbeResult
 from robot_orchestrator.paths import Paths
@@ -185,6 +185,7 @@ class BootSequence:
             "mode.production": mode.production,
             "hw.mcu_port": mcu_port,
             "hw.camera_device": camera_device,
+            "hw.chromium_bin": resolve_chromium_bin(),
         }
         if service.repo:
             repo_state = store.get_repo_state(self.db.conn, service.repo)

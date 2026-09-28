@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable
@@ -6,6 +7,13 @@ from robot_orchestrator.config import CameraConfig, McuConfig
 from robot_orchestrator.hal.base import CameraProbe, UsbInventory
 
 UdevQueryT = Callable[[Path, str], "str | None"]
+
+
+def resolve_chromium_bin(which: Callable[[str], "str | None"] = shutil.which) -> str:
+    for candidate in ("chromium-browser", "chromium"):
+        if which(candidate) is not None:
+            return candidate
+    return "chromium"
 
 
 def resolve_camera_device(

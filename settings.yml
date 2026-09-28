@@ -128,7 +128,7 @@ services:
       load_dotenv: false
   - name: kiosk
     repo: null
-    cmd: ["chromium", "--kiosk", "--noerrdialogs", "--disable-infobars", "--no-first-run",
+    cmd: ["{hw.chromium_bin}", "--kiosk", "--noerrdialogs", "--disable-infobars", "--no-first-run",
           "--disable-session-crashed-bubble", "--check-for-update-interval=31536000",
           "--password-store=basic", "--autoplay-policy=no-user-gesture-required",
           "--user-data-dir={run}/kiosk-profile",
