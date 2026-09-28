@@ -216,6 +216,30 @@ async def _navigate_kiosk(settings: Settings, generated: dict) -> None:
         pass
 
 
+async def _wait_for_port(host: str, port: int, timeout_s: float = 15.0) -> None:
+    connect_host = "127.0.0.1" if host == "0.0.0.0" else host
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while True:
+        try:
+            _, writer = await asyncio.open_connection(connect_host, port)
+            writer.close()
+            return
+        except OSError:
+            if asyncio.get_event_loop().time() >= deadline:
+                return
+            await asyncio.sleep(0.2)
+
+
+async def _wait_for_requirements(services: list, timeout_s: float = 30.0) -> None:
+    requirements = {req for service in services for req in service.requires}
+    if "x11" in requirements:
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while not Path("/tmp/.X11-unix/X0").exists():
+            if asyncio.get_event_loop().time() >= deadline:
+                break
+            await asyncio.sleep(0.5)
+
+
 async def _watchdog_loop(notifier: SdNotifier, stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
         notifier.watchdog()
@@ -262,15 +286,23 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
 
     notifier = SdNotifier()
     notifier.status("booting")
-    result = await sequence.run()
-    context.boot_result = result
-    notifier.status(f"running mode={'production' if result.mode.production else 'nonprod'}")
-    notifier.ready()
 
     app = create_app(paths, jwt_secret=generated["ORCH_JWT_SECRET"], jwt_ttl_s=settings.web.jwt_ttl_s, context=context)
     web_config = uvicorn.Config(app, host=settings.web.host, port=settings.web.port, log_config=None)
     server = uvicorn.Server(web_config)
     server_task = asyncio.create_task(server.serve())
+
+    early_names = sequence.prepare_early_services()
+    if early_names:
+        early_services = [s for s in settings.services if s.name in early_names]
+        await _wait_for_port(settings.web.host, settings.web.port)
+        await _wait_for_requirements(early_services)
+        await supervisor.start_ordered(topological_order(early_services), capabilities={})
+
+    result = await sequence.run()
+    context.boot_result = result
+    notifier.status(f"running mode={'production' if result.mode.production else 'nonprod'}")
+    notifier.ready()
 
     if result.mode.production and capability(result.mode, "kiosk_browser"):
         await _navigate_kiosk(settings, generated)

@@ -61,6 +61,16 @@ class BootSequence:
         self.recovery_committing_handlers = recovery_committing_handlers
         self.wifi_manager = wifi_manager
 
+    def prepare_early_services(self) -> list[str]:
+        placeholder_mode = ModeDecision(production=False, reasons=[], capabilities={})
+        names = []
+        for service in self.settings.services:
+            if service.phase != "early":
+                continue
+            self._register_service(service, placeholder_mode, camera_device=None, mcu_port=None)
+            names.append(service.name)
+        return names
+
     async def run(self) -> BootResult:
         boot_id = uuid.uuid4().hex
         started_at = time.time()
@@ -88,7 +98,8 @@ class BootSequence:
         mcu_port = resolve_mcu_port(self.settings.hardware.mcu, self.hal.usb_inventory)
         self._prepare_services(mode, camera_device, mcu_port)
 
-        order = topological_order(self.settings.services)
+        main_services = [s for s in self.settings.services if s.phase != "early"]
+        order = topological_order(main_services)
         services_ready = await self.supervisor.start_ordered(order, mode.capabilities)
 
         with self.db.transaction() as conn:
@@ -204,11 +215,18 @@ class BootSequence:
 
     def _prepare_services(self, mode: ModeDecision, camera_device: str | None, mcu_port: str | None) -> None:
         for service in self.settings.services:
-            values = self._render_values(service, mode, camera_device, mcu_port)
-            if service.overlay:
-                write_overlay(self.paths.overlay_path(service.name), service.overlay, values)
-            rendered_cmd = render(service.cmd, values)
-            rendered_config = service.model_copy(update={"cmd": rendered_cmd})
-            cwd = Path(values["release"]) if "release" in values else self.paths.run_dir
-            env = self._build_env(service, values)
-            self.supervisor.register(rendered_config, cwd=cwd, env=env)
+            if service.phase == "early":
+                continue
+            self._register_service(service, mode, camera_device, mcu_port)
+
+    def _register_service(
+        self, service, mode: ModeDecision, camera_device: str | None, mcu_port: str | None
+    ) -> None:
+        values = self._render_values(service, mode, camera_device, mcu_port)
+        if service.overlay:
+            write_overlay(self.paths.overlay_path(service.name), service.overlay, values)
+        rendered_cmd = render(service.cmd, values)
+        rendered_config = service.model_copy(update={"cmd": rendered_cmd})
+        cwd = Path(values["release"]) if "release" in values else self.paths.run_dir
+        env = self._build_env(service, values)
+        self.supervisor.register(rendered_config, cwd=cwd, env=env)
