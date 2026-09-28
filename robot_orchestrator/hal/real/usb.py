@@ -86,6 +86,6 @@ class RealSwdProbe:
         ]
         try:
             result = self.runner(argv, 5.0)
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, OSError):
             return False
         return result.returncode == 0

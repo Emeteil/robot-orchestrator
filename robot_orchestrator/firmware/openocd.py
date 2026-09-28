@@ -40,6 +40,8 @@ class OpenOcdFlasher:
             result = self.runner(argv, self.config.timeout_s)
         except subprocess.TimeoutExpired:
             return FlashResult(ok=False, detail=f"openocd timed out after {self.config.timeout_s}s")
+        except OSError as e:
+            return FlashResult(ok=False, detail=str(e))
 
         if result.returncode == 0:
             return FlashResult(ok=True)
