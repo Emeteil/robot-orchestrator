@@ -105,6 +105,11 @@ def _ensure_platformio_venv(paths: Paths) -> Path:
     venv_path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([sys.executable, "-m", "venv", str(venv_path)], check=True, capture_output=True, text=True)
     subprocess.run([str(venv_pip(venv_path)), "install", "platformio"], check=True, capture_output=True, text=True)
+    env = {**os.environ, "PLATFORMIO_CORE_DIR": str(paths.pio_core_dir)}
+    subprocess.run(
+        [str(venv_python(venv_path)), "-m", "platformio", "pkg", "install", "-g", "-t", "platformio/tool-openocd"],
+        env=env, check=True, capture_output=True, text=True,
+    )
     marker.write_text("")
     return venv_path
 

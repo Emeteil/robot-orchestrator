@@ -1,7 +1,11 @@
+import time
+
 from robot_orchestrator.config import MicrophoneConfig
 from robot_orchestrator.hal.base import ProbeResult
 
 FALLBACK_SAMPLERATES = [48000, 44100, 32000, 22050, 16000, 8000]
+RETRY_ATTEMPTS = 3
+RETRY_DELAY_S = 1.0
 
 
 class RealMicProbe:
@@ -9,6 +13,15 @@ class RealMicProbe:
         self.config = config
 
     def probe(self) -> ProbeResult:
+        result = self._probe_once()
+        for _ in range(RETRY_ATTEMPTS - 1):
+            if result.ok:
+                return result
+            time.sleep(RETRY_DELAY_S)
+            result = self._probe_once()
+        return result
+
+    def _probe_once(self) -> ProbeResult:
         try:
             import numpy as np
             import sounddevice as sd
