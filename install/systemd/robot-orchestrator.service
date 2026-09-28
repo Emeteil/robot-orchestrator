@@ -2,13 +2,13 @@
 Description=robot-orchestrator
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
 WatchdogSec=60
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=0
 KillMode=control-group
 TimeoutStopSec=40
 User=robot
