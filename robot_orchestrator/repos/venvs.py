@@ -91,6 +91,12 @@ class VenvBuilder:
 
         for line in no_deps_lines:
             subprocess.run([pip, "install", "--no-deps", line], check=True, capture_output=True, text=True)
+            if package_name(line).lower() == "openwakeword":
+                python = str(venv_python(venv_path))
+                subprocess.run(
+                    [python, "-c", "from openwakeword.utils import download_models; download_models()"],
+                    check=True, capture_output=True, text=True,
+                )
 
         if rest_lines:
             self.wheelhouse.mkdir(parents=True, exist_ok=True)
