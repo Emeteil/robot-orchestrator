@@ -1,4 +1,5 @@
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -6,6 +7,8 @@ from robot_orchestrator.config import StlinkConfig
 from robot_orchestrator.hal.base import UsbInventory
 
 RunnerT = Callable[[list[str], float], subprocess.CompletedProcess]
+TARGET_PRESENT_RETRY_ATTEMPTS = 5
+TARGET_PRESENT_RETRY_DELAY_S = 1.5
 
 
 def _default_runner(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
@@ -77,6 +80,14 @@ class RealSwdProbe:
         if not self.stlink_present():
             return False
 
+        for attempt in range(TARGET_PRESENT_RETRY_ATTEMPTS):
+            if attempt > 0:
+                time.sleep(TARGET_PRESENT_RETRY_DELAY_S)
+            if self._probe_target_once():
+                return True
+        return False
+
+    def _probe_target_once(self) -> bool:
         argv = [
             str(self.openocd_binary),
             "-s", str(self.scripts_dir),
