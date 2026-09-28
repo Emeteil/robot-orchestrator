@@ -285,7 +285,7 @@ async function loadOverview() {
   const tbody = document.getElementById("overview-table");
   tbody.innerHTML = "";
   const statusEl = document.getElementById("mode-status");
-  if (!data.boot) {
+  if (!data.boot_id) {
     statusEl.textContent = "booting"; statusEl.className = "status unknown";
     tbody.innerHTML = "<tr><td>boot</td><td>ещё не завершён</td></tr>";
     return;
