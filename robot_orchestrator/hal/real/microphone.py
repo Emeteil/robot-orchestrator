@@ -17,9 +17,23 @@ class RealMicProbe:
         for _ in range(RETRY_ATTEMPTS - 1):
             if result.ok:
                 return result
+            if result.detail == "no matching input device":
+                self._reinit_portaudio()
             time.sleep(RETRY_DELAY_S)
             result = self._probe_once()
         return result
+
+    def _reinit_portaudio(self) -> None:
+        # PortAudio snapshots the device list once at init; a USB sound card that
+        # enumerates after that snapshot (e.g. right after a cold boot) never shows
+        # up in this process until PortAudio is torn down and re-initialized.
+        try:
+            import sounddevice as sd
+
+            sd._terminate()
+            sd._initialize()
+        except Exception:
+            pass
 
     def _probe_once(self) -> ProbeResult:
         try:
