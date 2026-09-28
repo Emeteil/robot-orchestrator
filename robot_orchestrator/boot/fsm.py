@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from robot_orchestrator.config import Settings
 from robot_orchestrator.hal.base import ProbeResult
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.repos.manager import RELEASE_MARKER, RepoManager
+from robot_orchestrator.repos.venvs import venv_python
 from robot_orchestrator.secrets import store as secrets_store
 from robot_orchestrator.secrets.ingest import ingest_payload
 from robot_orchestrator.secrets.protocol import SecretsPayload
@@ -174,6 +176,40 @@ class BootSequence:
             result = manager.sync()
             if result.error is not None and result.sha is None:
                 facts.repo_update_failures.append(name)
+            elif name == "web-core":
+                self._ensure_webcore_admin()
+
+    def _ensure_webcore_admin(self) -> None:
+        repo_state = store.get_repo_state(self.db.conn, "web-core")
+        if not repo_state or not repo_state.get("current_release"):
+            return
+        release_dir = Path(repo_state["current_release"])
+        marker_path = release_dir / RELEASE_MARKER
+        if not marker_path.exists():
+            return
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        venv_hash = marker.get("venv_hash")
+        if not venv_hash:
+            return
+        python = venv_python(self.paths.venv_path("web-core", venv_hash))
+        script = release_dir / "tools" / "create_admin.py"
+        if not python.exists() or not script.exists():
+            return
+
+        generated = secrets_store.ensure_generated_secrets(self.paths)
+        regular = secrets_store.load_secrets(self.paths).get("secrets", {}) or {}
+        admin_password = regular.get("WEBCORE_ADMIN_PASSWORD") or generated.get("WEBCORE_ADMIN_PASSWORD")
+        if not admin_password:
+            return
+
+        env = {**os.environ, "ADMIN_PASSWORD": admin_password}
+        try:
+            subprocess.run(
+                [str(python), str(script)], cwd=release_dir, env=env,
+                capture_output=True, text=True, timeout=30.0,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
     def _run_firmware_targets(self, facts: BootFacts) -> None:
         for name, workflow in self.firmware_workflows.items():

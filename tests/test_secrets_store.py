@@ -46,11 +46,11 @@ def test_write_secrets_permissions(tmp_path: Path):
         assert dir_mode == 0o700
 
 
-def test_ensure_generated_secrets_creates_three_keys(tmp_path: Path):
+def test_ensure_generated_secrets_creates_expected_keys(tmp_path: Path):
     paths = _make_paths(tmp_path)
     generated = store.ensure_generated_secrets(paths)
 
-    assert set(generated.keys()) == {"MASTER_TOKEN", "flask_secret", "ORCH_JWT_SECRET"}
+    assert set(generated.keys()) == {"MASTER_TOKEN", "flask_secret", "ORCH_JWT_SECRET", "WEBCORE_ADMIN_PASSWORD"}
     assert all(generated[key] for key in generated)
 
 

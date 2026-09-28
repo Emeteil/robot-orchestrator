@@ -7,7 +7,7 @@ from robot_orchestrator.paths import Paths
 from robot_orchestrator.secrets.protocol import SecretsPayload, WifiCredential
 from robot_orchestrator.wal.atomic import atomic_write
 
-GENERATED_KEYS = ("MASTER_TOKEN", "flask_secret", "ORCH_JWT_SECRET")
+GENERATED_KEYS = ("MASTER_TOKEN", "flask_secret", "ORCH_JWT_SECRET", "WEBCORE_ADMIN_PASSWORD")
 
 
 def _ensure_secrets_dir(paths: Paths) -> None:
@@ -42,9 +42,11 @@ def write_secrets(paths: Paths, payload: SecretsPayload) -> None:
 
 
 def ensure_generated_secrets(paths: Paths) -> dict:
-    if not paths.generated_secrets_file.exists():
+    existing = _load_generated(paths)
+    missing = [key for key in GENERATED_KEYS if not existing.get(key)]
+    if missing:
         _ensure_secrets_dir(paths)
-        generated = {key: stdlib_secrets.token_urlsafe(32) for key in GENERATED_KEYS}
+        generated = {**existing, **{key: stdlib_secrets.token_urlsafe(32) for key in missing}}
         blob = yaml.safe_dump(generated, sort_keys=True).encode("utf-8")
         atomic_write(paths.generated_secrets_file, blob)
     return _load_generated(paths)
