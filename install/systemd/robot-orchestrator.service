@@ -6,6 +6,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=notify
+TimeoutStartSec=0
 WatchdogSec=60
 Restart=always
 RestartSec=3
