@@ -61,6 +61,36 @@
     background: #3a2f10; color: #f2c94c; border: 1px solid #5e4d1e; border-radius: 8px; padding: 10px 14px;
     font-size: 13px; margin-bottom: 16px;
   }
+  .log-card { padding: 0; overflow: hidden; }
+  .log-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 14px; border-bottom: 1px solid #21262d; flex-wrap: wrap;
+  }
+  .log-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .log-filter-chip {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--chip-color, #30363d);
+    background: transparent; color: var(--chip-color, #8b949e); cursor: pointer; font-weight: 600;
+  }
+  .log-filter-chip.muted { opacity: 0.35; }
+  .log-scroll-wrap { position: relative; }
+  .log-output {
+    height: 60vh; overflow-y: auto; background: #0d1117; padding: 8px 14px;
+    font: 12.5px/1.55 "JetBrains Mono", Consolas, monospace;
+  }
+  .log-line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+  .log-line .lg-time { color: #586069; flex-shrink: 0; }
+  .log-line .lg-svc {
+    flex-shrink: 0; font-weight: 700; padding: 0 6px; border-radius: 4px; font-size: 11px;
+    align-self: flex-start; line-height: 1.6;
+  }
+  .log-line .lg-text { flex: 1; color: #c9d1d9; }
+  .log-line.lvl-error .lg-text { color: #f28b8b; }
+  .log-line.lvl-warn .lg-text { color: #f2c94c; }
+  .log-jump {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: #1f6feb; color: white; border: none; border-radius: 999px; padding: 6px 16px;
+    font-size: 12px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.5);
+  }
 </style>
 </head>
 <body>
@@ -130,12 +160,15 @@
   </section>
 
   <section id="sec-logs">
-    <div class="card">
-      <div class="field">
-        <label>Сервис</label>
-        <select id="log-service-select" onchange="loadLogs()"></select>
+    <div class="card log-card">
+      <div class="log-toolbar">
+        <div id="log-filters" class="log-filters"></div>
+        <button class="action secondary" onclick="clearLogView()">Очистить вид</button>
       </div>
-      <pre id="log-output">—</pre>
+      <div class="log-scroll-wrap">
+        <div id="log-output" class="log-output"></div>
+        <button id="btn-log-jump" class="log-jump" style="display:none;" onclick="logJumpToBottom()">↓ Новые записи</button>
+      </div>
     </div>
   </section>
 
@@ -225,6 +258,8 @@ function buildNav() {
 }
 
 function selectTab(id) {
+  const previous = document.querySelector("nav button.active")?.dataset.tab;
+  if (previous === "logs" && id !== "logs") stopLogs();
   for (const el of document.querySelectorAll("section")) el.classList.remove("active");
   for (const el of document.querySelectorAll("nav button")) el.classList.remove("active");
   document.getElementById("sec-" + id).classList.add("active");
@@ -275,6 +310,7 @@ async function login() {
 }
 
 function logout() {
+  stopLogs();
   clearToken();
   showLogin();
 }
@@ -381,19 +417,139 @@ async function firmwareAction(name, action) {
   loadFirmware();
 }
 
+const LOG_MAX_LINES = 2000;
+const LOG_COLOR_PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#f778ba", "#39c5cf", "#ff7b72"];
+let logEventSource = null;
+let logAutoScroll = true;
+const logServiceColors = {};
+const logHiddenServices = new Set();
+
+function logColorFor(service) {
+  if (!logServiceColors[service]) {
+    const idx = Object.keys(logServiceColors).length % LOG_COLOR_PALETTE.length;
+    logServiceColors[service] = LOG_COLOR_PALETTE[idx];
+  }
+  return logServiceColors[service];
+}
+
+function ensureLogFilterChip(service) {
+  const container = document.getElementById("log-filters");
+  if (container.querySelector(`[data-service="${service}"]`)) return;
+  const chip = document.createElement("button");
+  chip.className = "log-filter-chip";
+  chip.dataset.service = service;
+  chip.textContent = service;
+  chip.style.setProperty("--chip-color", logColorFor(service));
+  chip.onclick = () => toggleLogFilter(service, chip);
+  container.appendChild(chip);
+}
+
+function toggleLogFilter(service, chip) {
+  if (logHiddenServices.has(service)) {
+    logHiddenServices.delete(service);
+    chip.classList.remove("muted");
+  } else {
+    logHiddenServices.add(service);
+    chip.classList.add("muted");
+  }
+  const output = document.getElementById("log-output");
+  for (const el of output.children) {
+    el.style.display = logHiddenServices.has(el.dataset.service) ? "none" : "flex";
+  }
+}
+
+function logLevelClass(text) {
+  const t = text.toLowerCase();
+  if (t.includes("traceback") || t.includes("segmentation fault") || t.includes("critical")
+      || /\berr\b|\berror\b/.test(t)) return "lvl-error";
+  if (/\bwarn/.test(t)) return "lvl-warn";
+  return "";
+}
+
+function isLogAtBottom() {
+  const el = document.getElementById("log-output");
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+}
+
+function scrollLogToBottom() {
+  const el = document.getElementById("log-output");
+  el.scrollTop = el.scrollHeight;
+  document.getElementById("btn-log-jump").style.display = "none";
+}
+
+function logJumpToBottom() {
+  logAutoScroll = true;
+  scrollLogToBottom();
+}
+
+function clearLogView() {
+  document.getElementById("log-output").innerHTML = "";
+}
+
+function appendLogLine(item) {
+  ensureLogFilterChip(item.service);
+  const output = document.getElementById("log-output");
+  const div = document.createElement("div");
+  div.className = "log-line " + logLevelClass(item.text);
+  div.dataset.service = item.service;
+  if (logHiddenServices.has(item.service)) div.style.display = "none";
+  const color = logColorFor(item.service);
+  const time = item.ts ? new Date(item.ts * 1000).toLocaleTimeString() : "";
+  const timeEl = document.createElement("span");
+  timeEl.className = "lg-time";
+  timeEl.textContent = time;
+  const svcEl = document.createElement("span");
+  svcEl.className = "lg-svc";
+  svcEl.textContent = item.service;
+  svcEl.style.background = color + "33";
+  svcEl.style.color = color;
+  const textEl = document.createElement("span");
+  textEl.className = "lg-text";
+  textEl.textContent = item.text;
+  div.append(timeEl, svcEl, textEl);
+  output.appendChild(div);
+  while (output.children.length > LOG_MAX_LINES) output.removeChild(output.firstChild);
+  if (logAutoScroll) {
+    scrollLogToBottom();
+  } else {
+    document.getElementById("btn-log-jump").style.display = "block";
+  }
+}
+
+function stopLogs() {
+  if (logEventSource) {
+    logEventSource.close();
+    logEventSource = null;
+  }
+}
+
 async function loadLogs() {
-  const select = document.getElementById("log-service-select");
-  if (!select.dataset.filled) {
+  if (logEventSource) return;
+  document.getElementById("log-output").innerHTML = "";
+  document.getElementById("log-filters").innerHTML = "";
+  logHiddenServices.clear();
+  Object.keys(logServiceColors).forEach((k) => delete logServiceColors[k]);
+  logAutoScroll = true;
+  const outputEl = document.getElementById("log-output");
+  if (!outputEl.dataset.scrollBound) {
+    outputEl.dataset.scrollBound = "1";
+    outputEl.addEventListener("scroll", () => {
+      logAutoScroll = isLogAtBottom();
+      if (logAutoScroll) document.getElementById("btn-log-jump").style.display = "none";
+    });
+  }
+  try {
     const res = await api("/api/services");
     const services = await res.json();
-    select.innerHTML = services.map((s) => `<option value="${s.name}">${s.name}</option>`).join("");
-    select.dataset.filled = "1";
-  }
-  const name = select.value;
-  if (!name) return;
-  const res = await api(`/api/logs/${name}?lines=300`);
-  const body = await res.json();
-  document.getElementById("log-output").textContent = body.lines.join("\n") || "(пусто)";
+    services.forEach((s) => ensureLogFilterChip(s.name));
+  } catch (e) { /* filters will still populate from incoming lines */ }
+  const url = `/api/logs/all/stream?token=${encodeURIComponent(token())}`;
+  logEventSource = new EventSource(url);
+  logEventSource.onmessage = (ev) => {
+    try {
+      appendLogLine(JSON.parse(ev.data));
+    } catch (e) { /* ignore malformed event */ }
+  };
 }
 
 async function loadSecrets() {
