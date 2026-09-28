@@ -67,6 +67,13 @@ def verify_login(paths: Paths, username: str, password: str) -> bool:
     return verify_password_hash(password, bytes.fromhex(record.salt_hex), bytes.fromhex(record.hash_hex))
 
 
+def apply_password_if_default(paths: Paths, username: str, new_password: str, default_password: str = "admin") -> bool:
+    if not is_default_password(paths, default_password):
+        return False
+    save_admin(paths, username, new_password)
+    return True
+
+
 def is_default_password(paths: Paths, default_password: str = "admin") -> bool:
     record = load_admin(paths)
     if record is None:

@@ -27,6 +27,7 @@ from robot_orchestrator.supervisor.render import render
 from robot_orchestrator.supervisor.supervisor import Supervisor, topological_order
 from robot_orchestrator.wal import recovery
 from robot_orchestrator.wal.journal import Journal
+from robot_orchestrator.web import auth as web_auth
 
 
 @dataclass
@@ -152,6 +153,11 @@ class BootSequence:
             if payload is not None:
                 ingest_payload(self.paths, self.journal, payload)
                 missing = secrets_store.missing_required_secrets(self.paths, required)
+                orch_admin_password = payload.secrets.get("ORCH_ADMIN_PASSWORD")
+                if orch_admin_password:
+                    web_auth.apply_password_if_default(
+                        self.paths, self.settings.web.admin_user, orch_admin_password
+                    )
         facts.missing_required_secrets = missing
 
     def _probe_hardware(self, facts: BootFacts, camera_device: str | None) -> None:

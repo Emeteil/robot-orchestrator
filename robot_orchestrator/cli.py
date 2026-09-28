@@ -259,7 +259,13 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
     db = Database(paths.state_db)
     journal = Journal(db, boot_id=uuid.uuid4().hex)
 
-    web_auth.ensure_default_admin(paths, username=settings.web.admin_user)
+    orch_admin_password = (secrets_store.load_secrets(paths).get("secrets", {}) or {}).get("ORCH_ADMIN_PASSWORD")
+    if web_auth.load_admin(paths) is None:
+        web_auth.ensure_default_admin(
+            paths, username=settings.web.admin_user, default_password=orch_admin_password or "admin"
+        )
+    elif orch_admin_password:
+        web_auth.apply_password_if_default(paths, settings.web.admin_user, orch_admin_password)
     generated = secrets_store.ensure_generated_secrets(paths)
 
     hal = _build_hal(settings, paths, args)
