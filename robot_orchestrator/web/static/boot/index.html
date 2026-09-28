@@ -55,9 +55,20 @@ function render(data) {
   const qrHint = document.getElementById("qr-hint");
   banner.innerHTML = "";
 
+  const STEP_LABELS = {
+    starting: "Загрузка…",
+    checking_secrets: "Проверка секретов…",
+    waiting_for_qr: "Ожидание QR-кода",
+    probing_hardware: "Проверка оборудования…",
+    updating_repos: "Обновление репозиториев…",
+    flashing_firmware: "Прошивка микроконтроллера…",
+    starting_services: "Запуск сервисов…",
+    done: "Загрузка…",
+  };
+
   if (data.state === "booting" || data.state === "unknown") {
     banner.className = "banner booting";
-    banner.textContent = "Загрузка…";
+    banner.textContent = STEP_LABELS[data.step] || "Загрузка…";
   } else if (data.production) {
     banner.className = "banner prod";
     banner.textContent = "PROD";
@@ -76,7 +87,8 @@ function render(data) {
     }
   }
 
-  const showQr = data.reasons && data.reasons.some((r) => r.startsWith("secrets_missing"));
+  const showQr = data.step === "waiting_for_qr" ||
+    (data.reasons && data.reasons.some((r) => r.startsWith("secrets_missing")));
   qrHint.style.display = showQr ? "block" : "none";
   if (showQr) {
     qr.style.display = "block";

@@ -35,6 +35,11 @@ class BootResult:
     services_ready: dict[str, bool]
 
 
+@dataclass
+class BootProgress:
+    step: str = "starting"
+
+
 class BootSequence:
     def __init__(
         self,
@@ -49,6 +54,7 @@ class BootSequence:
         scan_qr: Callable[[], SecretsPayload | None] | None = None,
         recovery_committing_handlers: dict | None = None,
         wifi_manager=None,
+        progress: "BootProgress | None" = None,
     ):
         self.settings = settings
         self.paths = paths
@@ -61,6 +67,7 @@ class BootSequence:
         self.scan_qr = scan_qr
         self.recovery_committing_handlers = recovery_committing_handlers
         self.wifi_manager = wifi_manager
+        self.progress = progress or BootProgress()
 
     def prepare_early_services(self) -> list[str]:
         placeholder_mode = ModeDecision(production=False, reasons=[], capabilities={})
@@ -86,22 +93,28 @@ class BootSequence:
         facts = BootFacts()
         facts.gpio_forced = self._read_gpio()
 
+        self.progress.step = "checking_secrets"
         await self._maybe_scan_qr(facts)
 
+        self.progress.step = "probing_hardware"
         camera_device = resolve_camera_device(self.settings.hardware.camera, self.hal.camera_probe)
         await asyncio.to_thread(self._probe_hardware, facts, camera_device)
 
+        self.progress.step = "updating_repos"
         await asyncio.to_thread(self._update_repos, facts)
+        self.progress.step = "flashing_firmware"
         await asyncio.to_thread(self._run_firmware_targets, facts)
 
         mode = decide_mode(facts)
 
+        self.progress.step = "starting_services"
         mcu_port = resolve_mcu_port(self.settings.hardware.mcu, self.hal.usb_inventory)
         self._prepare_services(mode, camera_device, mcu_port)
 
         main_services = [s for s in self.settings.services if s.phase != "early"]
         order = topological_order(main_services)
         services_ready = await self.supervisor.start_ordered(order, mode.capabilities)
+        self.progress.step = "done"
 
         with self.db.transaction() as conn:
             store.update_boot_history(
@@ -132,6 +145,7 @@ class BootSequence:
         required = self.settings.secrets.required
         missing = secrets_store.missing_required_secrets(self.paths, required)
         if missing and self.scan_qr is not None:
+            self.progress.step = "waiting_for_qr"
             payload = await asyncio.to_thread(self.scan_qr)
             if payload is not None:
                 ingest_payload(self.paths, self.journal, payload)

@@ -13,7 +13,7 @@ import yaml
 
 from robot_orchestrator import log as logmod
 from robot_orchestrator.boot.decision import capability
-from robot_orchestrator.boot.fsm import BootSequence
+from robot_orchestrator.boot.fsm import BootProgress, BootSequence
 from robot_orchestrator.boot.hardware import resolve_camera_device, resolve_mcu_port
 from robot_orchestrator.config import Settings, load_settings
 from robot_orchestrator.firmware.github_artifacts import GithubArtifactClient
@@ -271,17 +271,20 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
     }
 
     stop_event = asyncio.Event()
+    boot_progress = BootProgress()
     context = AdminContext(
         settings=settings, paths=paths, db=db, journal=journal,
         repo_managers=repo_managers, firmware_workflows=firmware_workflows,
         supervisor=supervisor, scan_qr=scan_qr, wifi_manager=wifi_manager,
         self_update_manager=self_update_manager, request_restart=stop_event.set,
+        boot_progress=boot_progress,
     )
 
     sequence = BootSequence(
         settings, paths, db, journal, hal,
         repo_managers, firmware_workflows, supervisor,
         scan_qr=scan_qr, recovery_committing_handlers=recovery_handlers, wifi_manager=wifi_manager,
+        progress=boot_progress,
     )
 
     notifier = SdNotifier()

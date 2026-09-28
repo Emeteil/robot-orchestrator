@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Callable
 
-from robot_orchestrator.boot.fsm import BootResult
+from robot_orchestrator.boot.fsm import BootProgress, BootResult
 from robot_orchestrator.config import Settings
 from robot_orchestrator.firmware.workflow import FirmwareWorkflow
 from robot_orchestrator.paths import Paths
@@ -25,3 +25,4 @@ class AdminContext:
     self_update_manager: object | None = None
     request_restart: Callable[[], None] | None = None
     boot_result: BootResult | None = None
+    boot_progress: BootProgress | None = None

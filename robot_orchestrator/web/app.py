@@ -77,7 +77,8 @@ def create_app(
     def boot_state(request: Request):
         require_loopback(request)
         if context is None or context.boot_result is None:
-            return {"state": "booting"}
+            step = context.boot_progress.step if context and context.boot_progress else "starting"
+            return {"state": "booting", "step": step}
         boot = context.boot_result
         return {
             "state": "running",
