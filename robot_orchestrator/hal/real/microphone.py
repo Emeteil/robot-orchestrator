@@ -4,8 +4,8 @@ from robot_orchestrator.config import MicrophoneConfig
 from robot_orchestrator.hal.base import ProbeResult
 
 FALLBACK_SAMPLERATES = [48000, 44100, 32000, 22050, 16000, 8000]
-RETRY_ATTEMPTS = 3
-RETRY_DELAY_S = 1.0
+RETRY_ATTEMPTS = 6
+RETRY_DELAY_S = 1.5
 
 
 class RealMicProbe:
