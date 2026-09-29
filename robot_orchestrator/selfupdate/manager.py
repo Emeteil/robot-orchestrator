@@ -111,7 +111,9 @@ class SelfUpdateManager:
         if not self._stage_lock.acquire(blocking=False):
             return self.status()
         try:
-            return self._check_and_stage_locked()
+            result = self._check_and_stage_locked()
+            result.in_progress = False
+            return result
         finally:
             self._stage_lock.release()
 

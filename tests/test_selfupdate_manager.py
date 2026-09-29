@@ -103,6 +103,7 @@ def test_check_and_stage_is_noop_when_remote_matches_current(env, tmp_path):
     status = manager.check_and_stage()
 
     assert status.staged_sha is None
+    assert status.in_progress is False
 
 
 def test_check_and_stage_is_noop_when_remote_matches_already_staged(env, tmp_path):
