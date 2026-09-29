@@ -78,6 +78,10 @@ if [ "${INSTALL_DIR}" != "${TARGET_DIR}" ]; then
     rsync -a --delete --exclude ".venv" --exclude ".git" "${INSTALL_DIR}/" "${TARGET_DIR}/"
 fi
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET_DIR}"
+# the orchestrator reads its own git HEAD (self-update); keep that working even when a human owns the checkout
+if ! git config --system --get-all safe.directory | grep -qxF "${TARGET_DIR}"; then
+    git config --system --add safe.directory "${TARGET_DIR}"
+fi
 
 echo "==> building orchestrator venv"
 if [ ! -d "${TARGET_DIR}/.venv" ]; then

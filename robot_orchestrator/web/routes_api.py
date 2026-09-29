@@ -273,7 +273,7 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
         return {
             "enabled": c.settings.self_update.enabled,
             "current_sha": status.current_sha, "staged_sha": status.staged_sha,
-            "staged_at": status.staged_at, "error": status.error,
+            "staged_at": status.staged_at, "error": status.error, "in_progress": status.in_progress,
         }
 
     @app.post("/api/self-update/check")
@@ -284,7 +284,7 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
         status = await asyncio.to_thread(c.self_update_manager.check_and_stage)
         return {
             "current_sha": status.current_sha, "staged_sha": status.staged_sha,
-            "staged_at": status.staged_at, "error": status.error,
+            "staged_at": status.staged_at, "error": status.error, "in_progress": status.in_progress,
         }
 
     @app.post("/api/self-update/apply")

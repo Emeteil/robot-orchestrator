@@ -2,12 +2,14 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from robot_orchestrator.bootlog import logged_run
 from robot_orchestrator.config import SelfUpdateConfig
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.repos import git
@@ -29,16 +31,17 @@ class SelfUpdateStatus:
     staged_at: float | None
     remote_sha: str | None = None
     error: str | None = None
+    in_progress: bool = False
 
 
 def _default_build_venv(venv_path: Path, release_dir: Path) -> None:
     venv_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, "-m", "venv", str(venv_path)], check=True, capture_output=True, text=True)
+    logged_run([sys.executable, "-m", "venv", str(venv_path)], source="self-update", check=True)
     pip = str(venv_pip(venv_path))
     requirements = release_dir / "requirements.txt"
     if requirements.exists():
-        subprocess.run([pip, "install", "-r", str(requirements)], check=True, capture_output=True, text=True)
-    subprocess.run([pip, "install", "-e", str(release_dir)], check=True, capture_output=True, text=True)
+        logged_run([pip, "install", "-r", str(requirements)], source="self-update", check=True)
+    logged_run([pip, "install", "-e", str(release_dir)], source="self-update", check=True)
 
 
 def _default_validate(venv_path: Path, release_dir: Path) -> tuple[bool, str]:
@@ -91,6 +94,7 @@ class SelfUpdateManager:
         self.venv_builder = venv_builder or _default_build_venv
         self.validator = validator or _default_validate
         self.source_root = source_root
+        self._stage_lock = threading.Lock()
 
     def status(self) -> SelfUpdateStatus:
         return SelfUpdateStatus(
@@ -98,9 +102,20 @@ class SelfUpdateManager:
             staged_sha=self.db.get_meta("self_update.staged_sha") or None,
             staged_at=float(v) if (v := self.db.get_meta("self_update.staged_at")) else None,
             error=self.db.get_meta("self_update.last_error") or None,
+            in_progress=self._stage_lock.locked(),
         )
 
     def check_and_stage(self) -> SelfUpdateStatus:
+        # a second concurrent run would rebuild (and, on failure, delete) the very same release/venv
+        # directories the first one is still using, so a busy manager just reports its current status
+        if not self._stage_lock.acquire(blocking=False):
+            return self.status()
+        try:
+            return self._check_and_stage_locked()
+        finally:
+            self._stage_lock.release()
+
+    def _check_and_stage_locked(self) -> SelfUpdateStatus:
         current_sha = _resolve_current_sha(self.db, self.source_root)
         try:
             git.ensure_mirror_fresh(self.paths.self_mirror, self.config.url, timeout=self.config.fetch_timeout_s)
@@ -125,6 +140,9 @@ class SelfUpdateManager:
         staging = self.paths.self_staging(op_id)
         release_dir = self.paths.self_release(target_sha[:12])
         venv_path = self.paths.self_venv(target_sha[:12])
+        # leftovers of an attempt that crashed half-way would make the final rename fail
+        git.rmtree_safe(release_dir)
+        git.rmtree_safe(venv_path)
         try:
             git.clone_no_checkout(self.paths.self_mirror, staging)
             git.checkout_detach(staging, target_sha)

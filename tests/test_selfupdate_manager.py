@@ -334,3 +334,70 @@ def test_gc_keeps_current_and_staged_but_removes_superseded_release(env, tmp_pat
     assert paths.self_release(sha2[:12]).exists()
     assert paths.self_release(sha3[:12]).exists()
     assert any(r.name == "strayjunk12" for r in removed)
+
+
+def test_concurrent_check_is_rejected_while_a_build_is_running(env, tmp_path):
+    import threading
+
+    paths, db, journal = env
+    src = tmp_path / "src"
+    sha1 = _init_repo(src, {"main.py": "print(1)\n"})
+    db.set_meta("self_update.current_sha", sha1)
+    (src / "main.py").write_text("print(2)\n", encoding="utf-8")
+    sha2 = _commit_all(src, "second")
+
+    build_started = threading.Event()
+    release_build = threading.Event()
+    calls = []
+
+    def slow_builder(venv_path: Path, release_dir: Path) -> None:
+        calls.append(venv_path)
+        venv_path.mkdir(parents=True, exist_ok=True)
+        build_started.set()
+        assert release_build.wait(timeout=10)
+
+    config = SelfUpdateConfig(enabled=True, url=str(src), branch="main")
+    manager = SelfUpdateManager(paths, journal, db, config, venv_builder=slow_builder, validator=_fake_validator())
+
+    results = []
+    first = threading.Thread(target=lambda: results.append(manager.check_and_stage()))
+    first.start()
+    assert build_started.wait(timeout=10)
+
+    second = manager.check_and_stage()
+
+    assert second.in_progress is True
+    assert second.staged_sha is None
+    assert manager.status().in_progress is True
+    assert len(calls) == 1
+
+    release_build.set()
+    first.join(timeout=10)
+
+    assert results[0].staged_sha == sha2
+    assert results[0].error is None
+    assert manager.status().in_progress is False
+    assert len(calls) == 1
+
+
+def test_stale_leftovers_from_a_crashed_attempt_do_not_block_staging(env, tmp_path):
+    paths, db, journal = env
+    src = tmp_path / "src"
+    sha1 = _init_repo(src, {"main.py": "print(1)\n"})
+    db.set_meta("self_update.current_sha", sha1)
+    (src / "main.py").write_text("print(2)\n", encoding="utf-8")
+    sha2 = _commit_all(src, "second")
+
+    stale_release = paths.self_release(sha2[:12])
+    stale_release.mkdir(parents=True)
+    (stale_release / "half-written-file").write_text("junk", encoding="utf-8")
+    stale_venv = paths.self_venv(sha2[:12])
+    stale_venv.mkdir(parents=True)
+    (stale_venv / "junk").write_text("junk", encoding="utf-8")
+
+    manager = _manager(env, src, [])
+    status = manager.check_and_stage()
+
+    assert status.error is None
+    assert status.staged_sha == sha2
+    assert not (paths.self_release(sha2[:12]) / "half-written-file").exists()

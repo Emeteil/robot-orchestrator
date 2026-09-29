@@ -216,7 +216,7 @@
     <div class="card">
       <h3 style="margin-top:0;">Самообновление оркестратора</h3>
       <div id="self-update-info"></div>
-      <button class="action secondary" onclick="checkSelfUpdate()">Check now</button>
+      <button id="btn-self-check" class="action secondary" onclick="checkSelfUpdate()">Check now</button>
       <button class="action danger" onclick="applySelfUpdate()">Apply staged update</button>
       <div id="self-update-msg" class="msg"></div>
     </div>
@@ -642,11 +642,14 @@ async function loadSelfUpdate() {
     const res = await api("/api/self-update");
     const data = await res.json();
     const info = document.getElementById("self-update-info");
+    const escape = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
     info.innerHTML = `
       <p><strong>Включено:</strong> ${data.enabled ? "да" : "нет"}</p>
       <p><strong>Текущая версия:</strong> <code>${(data.current_sha || "—").slice(0, 12)}</code></p>
       <p><strong>Готова к применению:</strong> <code>${(data.staged_sha || "нет").slice(0, 12)}</code></p>
-      ${data.error ? `<p style="color:#f28b8b;">${data.error}</p>` : ""}`;
+      ${data.in_progress ? `<p style="color:#7fb3e0;">Идёт проверка и сборка обновления — это может занять несколько минут…</p>` : ""}
+      ${data.error ? `<p style="color:#f28b8b;">${escape(data.error)}</p>` : ""}`;
+    document.getElementById("btn-self-check").disabled = !!data.in_progress;
   } catch (e) {
     document.getElementById("self-update-info").textContent = String(e);
   }
@@ -654,16 +657,26 @@ async function loadSelfUpdate() {
 
 async function checkSelfUpdate() {
   const msg = document.getElementById("self-update-msg");
-  msg.textContent = "Проверка...";
+  const button = document.getElementById("btn-self-check");
+  button.disabled = true;
+  msg.textContent = "Проверка и сборка обновления… (не нажимайте повторно)";
+  msg.className = "msg";
   try {
     const res = await api("/api/self-update/check", { method: "POST" });
     const body = await res.json();
-    msg.textContent = body.staged_sha ? `Готово к применению: ${body.staged_sha.slice(0, 12)}` : (body.error || "Обновлений нет");
-    msg.className = body.error ? "msg error" : "msg success";
+    if (body.in_progress) {
+      msg.textContent = "Проверка уже выполняется — дождитесь результата";
+      msg.className = "msg";
+    } else {
+      msg.textContent = body.staged_sha ? `Готово к применению: ${body.staged_sha.slice(0, 12)}` : (body.error || "Обновлений нет");
+      msg.className = body.error ? "msg error" : "msg success";
+    }
     loadSelfUpdate();
   } catch (e) {
     msg.textContent = String(e);
     msg.className = "msg error";
+  } finally {
+    button.disabled = false;
   }
 }
 
