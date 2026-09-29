@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from robot_orchestrator.bootlog import BOOT_LOG, logged_run
 from robot_orchestrator.config import StlinkConfig
 from robot_orchestrator.hal.base import UsbInventory
 
@@ -12,7 +13,7 @@ TARGET_PRESENT_RETRY_DELAY_S = 1.5
 
 
 def _default_runner(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    return logged_run(argv, source="swd", timeout=timeout)
 
 
 def _read_attr(device_dir: Path, name: str) -> str | None:
@@ -82,6 +83,9 @@ class RealSwdProbe:
 
         for attempt in range(TARGET_PRESENT_RETRY_ATTEMPTS):
             if attempt > 0:
+                BOOT_LOG.emit(
+                    "swd", f"MCU не ответил, попытка {attempt + 1}/{TARGET_PRESENT_RETRY_ATTEMPTS}", "warn"
+                )
                 time.sleep(TARGET_PRESENT_RETRY_DELAY_S)
             if self._probe_target_once():
                 return True

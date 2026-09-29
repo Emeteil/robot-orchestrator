@@ -26,6 +26,16 @@ class JsonLineFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+class QuietBootPolling(logging.Filter):
+    """The boot screen polls its own endpoints every second; keep that out of the access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and str(args[2]).startswith("/boot/api/"):
+            return False
+        return True
+
+
 def configure_logging(log_file: Path | None = None, level: int = logging.INFO) -> None:
     root = logging.getLogger()
     root.setLevel(level)
@@ -40,3 +50,7 @@ def configure_logging(log_file: Path | None = None, level: int = logging.INFO) -
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setFormatter(JsonLineFormatter())
         root.addHandler(file_handler)
+
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, QuietBootPolling) for f in access_logger.filters):
+        access_logger.addFilter(QuietBootPolling())

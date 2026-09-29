@@ -3,103 +3,641 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>robot-orchestrator — boot</title>
+<title>Supervisor — запуск</title>
 <style>
-  :root { color-scheme: dark; }
+  /* Base layout targets the robot's own 800x480 display; the "wide" block at the bottom is for big monitors. */
+  :root {
+    color-scheme: dark;
+    --bg: #05080f; --panel: #0a101d; --panel2: #0d1526; --edge: #182240;
+    --fg: #d6e1f5; --dim: #6c7b99; --dimmer: #44506b;
+    --accent: #4ad8ff; --violet: #8b7bff; --ok: #4ade80; --warn: #fbbf24; --err: #ff5d73;
+    --mono: "JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
   * { box-sizing: border-box; }
+  html { font-size: 12px; }
+  html, body { height: 100%; margin: 0; }
   body {
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background: #0b0f14; color: #e6edf3; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(800px 380px at 10% -12%, rgba(139, 123, 255, .16), transparent 60%),
+      radial-gradient(700px 360px at 100% 0%, rgba(74, 216, 255, .11), transparent 55%),
+      var(--bg);
+    color: var(--fg); font-family: var(--sans);
+    display: flex; flex-direction: column; overflow: hidden; -webkit-user-select: none; user-select: none;
   }
-  .card { width: min(720px, 92vw); padding: 32px; }
-  h1 { font-size: 20px; font-weight: 600; margin: 0 0 24px; color: #8b949e; }
-  .banner {
-    border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; font-size: 22px; font-weight: 700;
+  .grow { flex: 1; }
+
+  header { display: flex; align-items: center; gap: .7rem; padding: .5rem .8rem .35rem; flex: none; }
+  .brand { display: flex; align-items: baseline; gap: .7rem; min-width: 0; }
+  .brand .logo {
+    font-size: 1.3rem; font-weight: 800; letter-spacing: .28em; text-transform: uppercase;
+    background: linear-gradient(90deg, var(--accent), var(--violet) 55%, var(--accent));
+    background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: sheen 6s linear infinite;
   }
-  .banner.prod { background: #103a1f; color: #6bd97a; border: 1px solid #1e5e33; }
-  .banner.nonprod { background: #3a2f10; color: #f2c94c; border: 1px solid #5e4d1e; }
-  .banner.booting { background: #12202f; color: #7fb3e0; border: 1px solid #1e3a5e; }
-  .reasons { list-style: none; margin: 12px 0 0; padding: 0; font-size: 14px; font-weight: 400; color: #c9d1d9; }
-  .reasons li { padding: 2px 0; }
-  .reasons li::before { content: "— "; opacity: .6; }
-  .qr-wrap { margin-top: 20px; text-align: center; }
-  .qr-wrap img { max-width: 260px; border-radius: 8px; border: 1px solid #30363d; display: none; }
-  .hint { color: #6e7681; font-size: 13px; margin-top: 6px; }
-  .footer { margin-top: 24px; font-size: 12px; color: #4a5158; text-align: center; }
+  .brand .sub { display: none; color: var(--dimmer); font: .78rem var(--mono); white-space: nowrap; }
+  .badge {
+    font: 700 .85rem var(--mono); letter-spacing: .1em; padding: .25rem .65rem; border-radius: 999px;
+    border: 1px solid var(--edge); white-space: nowrap; display: inline-flex; align-items: center; gap: .4rem;
+  }
+  .badge .dot { width: .45rem; height: .45rem; border-radius: 50%; background: currentColor; }
+  .badge.booting { color: var(--accent); border-color: rgba(74, 216, 255, .35); background: rgba(74, 216, 255, .07); }
+  .badge.booting .dot { animation: pulse 1.2s ease-in-out infinite; }
+  .badge.prod { color: var(--ok); border-color: rgba(74, 222, 128, .4); background: rgba(74, 222, 128, .09); }
+  .badge.nonprod { color: var(--warn); border-color: rgba(251, 191, 36, .45); background: rgba(251, 191, 36, .09); }
+  .clock { font: .95rem var(--mono); color: var(--dim); min-width: 3.2rem; text-align: right; }
+  .open-btn {
+    display: none; align-items: center; gap: .45rem; min-height: 2.7rem; padding: 0 1rem; border-radius: .6rem;
+    font: 700 .95rem var(--sans); color: #06121a; text-decoration: none; cursor: pointer; white-space: nowrap;
+    background: linear-gradient(135deg, var(--accent), #7cf0c6); animation: glow 2s ease-out infinite;
+  }
+  .open-btn.visible { display: inline-flex; }
+  .open-btn:active { transform: scale(.97); }
+
+  .progress { margin: 0 .8rem; height: .28rem; border-radius: 999px; background: #0f1a30; position: relative; overflow: hidden; flex: none; }
+  .progress .fill {
+    height: 100%; width: 0; border-radius: inherit; transition: width .6s cubic-bezier(.2, .8, .2, 1);
+    background: linear-gradient(90deg, var(--violet), var(--accent));
+  }
+  .progress .fill::after {
+    content: ""; position: absolute; inset: 0; width: 40%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .45), transparent);
+    animation: sweep 1.8s ease-in-out infinite;
+  }
+  .progress.done .fill::after { display: none; }
+  .progress.done .fill { background: linear-gradient(90deg, var(--ok), #86efac); }
+  .progress.warn .fill { background: linear-gradient(90deg, var(--warn), #fde68a); }
+
+  /* compact stage rail: one cell per stage, tap a cell to inspect it */
+  .rail { display: flex; gap: 3px; padding: .5rem .8rem 0; flex: none; }
+  .cell {
+    flex: 1; min-width: 0; height: 1.8rem; border-radius: .4rem; border: 1px solid var(--edge); background: var(--panel);
+    color: var(--dimmer); display: grid; place-items: center; font: .95rem/1 var(--sans); padding: 0; cursor: pointer;
+  }
+  .cell.running { border-color: rgba(74, 216, 255, .6); background: rgba(74, 216, 255, .12); }
+  .cell.ok { color: var(--ok); border-color: rgba(74, 222, 128, .28); background: rgba(74, 222, 128, .06); }
+  .cell.warn { color: var(--warn); border-color: rgba(251, 191, 36, .4); background: rgba(251, 191, 36, .08); }
+  .cell.failed { color: var(--err); border-color: rgba(255, 93, 115, .45); background: rgba(255, 93, 115, .09); }
+  .cell.skipped { color: var(--dimmer); opacity: .7; }
+  .cell.inspected { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .spin {
+    width: .9rem; height: .9rem; border-radius: 50%; border: 2px solid rgba(74, 216, 255, .22);
+    border-top-color: var(--accent); animation: spin .8s linear infinite;
+  }
+
+  .now { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; padding: .4rem .8rem .1rem; min-height: 2.1rem; flex: none; }
+  .now .msg { font: 700 1.05rem var(--sans); color: #eaf6ff; min-width: 0; overflow-wrap: anywhere; }
+  .now .msg small { font: .9rem var(--mono); color: #8ea4c8; font-weight: 400; margin-left: .3rem; }
+  .now .msg.ok { color: var(--ok); }
+  .now .msg.warn { color: var(--warn); }
+  .now .msg.failed { color: var(--err); }
+  .chip {
+    font: .85rem var(--mono); color: #fde7a8; border: 1px solid rgba(251, 191, 36, .35); border-radius: 999px;
+    padding: .12rem .6rem; background: rgba(251, 191, 36, .08);
+  }
+  .reasons { display: none; }
+
+  main { flex: 1; min-height: 0; display: flex; padding: .45rem .6rem .6rem; }
+  .panel {
+    background: linear-gradient(180deg, var(--panel), var(--panel2)); border: 1px solid var(--edge);
+    border-radius: .7rem; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; min-width: 0;
+  }
+  .log-panel { flex: 1; }
+  .steps-panel { display: none; }
+  .panel h2 {
+    display: none; margin: 0; padding: .65rem .95rem; font: 700 .72rem var(--mono); letter-spacing: .22em; color: var(--dim);
+    border-bottom: 1px solid var(--edge); align-items: center; justify-content: space-between;
+  }
+  .live {
+    position: absolute; right: .7rem; top: .4rem; z-index: 4; display: inline-flex; align-items: center; gap: .35rem;
+    font: .8rem var(--mono); color: var(--dimmer); letter-spacing: .06em; pointer-events: none;
+  }
+  .live i { width: .4rem; height: .4rem; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; }
+  .live.off i { background: var(--err); animation: none; }
+  .conn-lost { color: var(--err); }
+
+  .steps { list-style: none; margin: 0; padding: .4rem .35rem; overflow-y: auto; flex: 1; min-height: 0; }
+  .step {
+    display: grid; grid-template-columns: 1.4rem minmax(0, 1fr) auto; gap: .5rem; align-items: start;
+    padding: .28rem .5rem; border-radius: .55rem; position: relative;
+  }
+  .step .ico { width: 1.1rem; height: 1.1rem; margin-top: .08rem; display: grid; place-items: center; font-size: .9rem; line-height: 1; }
+  .step .title { font-size: .95rem; font-weight: 600; color: var(--dim); line-height: 1.3; }
+  .step .detail {
+    font: .78rem/1.3 var(--mono); color: var(--dimmer); margin-top: .05rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .step.running .detail, .step.warn .detail, .step.failed .detail { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .step .dur { font: .78rem var(--mono); color: var(--dimmer); padding-top: .12rem; }
+  .step.pending .ico { color: var(--dimmer); }
+  .step.running { background: linear-gradient(90deg, rgba(74, 216, 255, .10), transparent); }
+  .step.running::before {
+    content: ""; position: absolute; left: 0; top: .35rem; bottom: .35rem; width: .17rem; border-radius: 2px;
+    background: var(--accent); animation: pulse 1.1s ease-in-out infinite;
+  }
+  .step.running .title { color: #eaf6ff; }
+  .step.running .detail { color: #9fb6d6; }
+  .step.ok .ico { color: var(--ok); } .step.ok .title { color: var(--fg); }
+  .step.warn .ico { color: var(--warn); } .step.warn .title { color: #f5e6b8; } .step.warn .detail { color: #b9a15a; }
+  .step.failed .ico { color: var(--err); } .step.failed .title { color: #ffd0d7; } .step.failed .detail { color: #d98a97; }
+  .step.skipped .ico, .step.skipped .title { color: var(--dimmer); }
+
+  .qr-card {
+    display: none; position: fixed; right: .8rem; bottom: .8rem; width: 15rem; z-index: 30; padding: .6rem;
+    border-radius: .7rem; border: 1px solid rgba(163, 230, 53, .4); background: rgba(6, 12, 8, .94);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
+  }
+  .qr-card.visible { display: block; }
+  .qr-frame { position: relative; border-radius: .45rem; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+  .qr-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .qr-frame::after {
+    content: ""; position: absolute; left: 0; right: 0; height: 2px; top: 0;
+    background: linear-gradient(90deg, transparent, #a3e635, transparent); box-shadow: 0 0 10px #a3e635;
+    animation: scan 2.2s ease-in-out infinite;
+  }
+  .qr-hint { margin-top: .45rem; font-size: .85rem; color: #cfe7a0; text-align: center; line-height: 1.3; }
+
+  .log {
+    flex: 1; min-height: 0; overflow-y: auto; padding: .5rem .7rem .8rem; font: 1rem/1.36 var(--mono);
+    scrollbar-width: thin; scrollbar-color: #24345c transparent; overscroll-behavior: contain;
+    -webkit-user-select: text; user-select: text;
+  }
+  .log-fade { position: absolute; left: 0; right: .5rem; top: 0; height: 2.4rem; pointer-events: none; z-index: 2;
+    background: linear-gradient(180deg, var(--panel), rgba(10, 16, 29, 0)); }
+  .line { display: grid; grid-template-columns: 4.9rem 6.6rem minmax(0, 1fr) auto; gap: .5rem; padding: .03rem 0;
+    animation: lineIn .22s ease-out; }
+  .line .t { color: var(--dimmer); }
+  .line .t .ms { display: none; }
+  .line .src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; text-align: right; opacity: .9; }
+  .line .txt { color: #b8c6e0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .line .cnt { color: var(--dim); font-size: .8rem; align-self: center; }
+  .line.lv-dim .txt { color: var(--dimmer); }
+  .line.lv-cmd .txt { color: var(--accent); }
+  .line.lv-cmd .txt::before { content: "❯ "; color: var(--violet); }
+  .line.lv-ok .txt { color: var(--ok); }
+  .line.lv-warn .txt { color: var(--warn); }
+  .line.lv-error .txt { color: var(--err); }
+  .line.lv-step { margin-top: .4rem; padding-top: .3rem; border-top: 1px solid var(--edge); }
+  .line.lv-step .txt { color: #eaf3ff; font-weight: 700; }
+  .line.fresh .txt { text-shadow: 0 0 10px rgba(74, 216, 255, .35); }
+  .cursor-row { padding-left: 12.5rem; color: var(--accent); }
+  .cursor-row span { animation: blink 1s steps(1) infinite; }
+  .jump {
+    position: absolute; left: 50%; bottom: .7rem; transform: translateX(-50%); z-index: 3; display: none;
+    border: 0; border-radius: 999px; padding: .4rem 1rem; font: 700 .9rem var(--sans); color: #06121a;
+    background: var(--accent); box-shadow: 0 4px 18px rgba(0, 0, 0, .5); cursor: pointer;
+  }
+  .jump.visible { display: block; }
+  footer { display: none; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes sweep { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+  @keyframes sheen { to { background-position: -200% 0; } }
+  @keyframes scan { 0%, 100% { top: 0; } 50% { top: calc(100% - 2px); } }
+  @keyframes lineIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes glow { 0% { box-shadow: 0 0 0 0 rgba(74, 216, 255, .55); } 70%, 100% { box-shadow: 0 0 0 .7rem rgba(74, 216, 255, 0); } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  /* wide monitors: sidebar with the full stage list instead of the compact rail */
+  @media (min-width: 1000px) and (min-height: 640px) {
+    html { font-size: clamp(13px, .55vw + 7px, 16px); }
+    header { padding: .8rem 1.2rem .55rem; gap: 1rem; }
+    .brand .sub { display: inline; }
+    .brand .logo { font-size: 1.45rem; }
+    .progress { margin: 0 1.2rem; }
+    .rail, .now { display: none; }
+    .reasons { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0 1.2rem; }
+    .reasons.visible { padding-top: .6rem; }
+    main { gap: .8rem; padding: .8rem 1.2rem; }
+    .steps-panel { display: flex; flex: 0 0 27%; min-width: 15rem; }
+    .panel h2 { display: flex; }
+    .live { position: static; }
+    .log { font-size: .82rem; padding: .7rem .95rem 1.1rem; }
+    .log-fade { top: 2.35rem; height: 3rem; }
+    .line { grid-template-columns: 5.7rem 8.6rem minmax(0, 1fr) auto; gap: .6rem; }
+    .line .t .ms { display: inline; }
+    .cursor-row { padding-left: 15.6rem; }
+    footer { display: flex; gap: 1rem; align-items: center; padding: .35rem 1.2rem .7rem; font: .72rem var(--mono); color: var(--dimmer); flex: none; }
+  }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>robot-orchestrator</h1>
-  <div id="banner" class="banner booting">Загрузка…</div>
-  <div class="qr-wrap">
-    <img id="qr-preview" alt="QR preview">
-    <div id="qr-hint" class="hint" style="display:none;">Покажите камере робота лист с QR-кодами секретов</div>
-  </div>
-  <div class="footer">обновляется автоматически</div>
+<header>
+  <div class="brand"><span class="logo">Supervisor</span><span class="sub">robot-orchestrator · запуск системы</span></div>
+  <div class="grow"></div>
+  <span id="badge" class="badge booting"><span class="dot"></span><span id="badge-text">ЗАГРУЗКА</span></span>
+  <span id="clock" class="clock">00:00</span>
+  <a id="open-btn" class="open-btn" href="#">Открыть web-core <span aria-hidden="true">→</span></a>
+</header>
+<div id="progress" class="progress"><div id="fill" class="fill"></div></div>
+<div id="reasons" class="reasons"></div>
+<div id="rail" class="rail"></div>
+<div id="now" class="now"></div>
+
+<main>
+  <section class="panel steps-panel">
+    <h2><span>ЭТАПЫ</span><span id="pct">0%</span></h2>
+    <ul id="steps" class="steps"></ul>
+  </section>
+
+  <section class="panel log-panel">
+    <h2><span>ПОТОК СОБЫТИЙ</span></h2>
+    <span id="live" class="live"><i></i><span id="live-text">live</span> · <span id="count">0</span></span>
+    <div class="log-fade"></div>
+    <div id="log" class="log"><div id="cursor" class="cursor-row"><span>▍</span></div></div>
+    <button id="jump" class="jump" type="button">↓ Новые строки</button>
+  </section>
+</main>
+
+<footer><span id="foot-left">оркестратор</span><span class="grow"></span><span id="foot-right"></span></footer>
+
+<div id="qr-card" class="qr-card">
+  <div class="qr-frame"><img id="qr-img" alt=""></div>
+  <div class="qr-hint">Покажите камере робота лист с QR-кодами секретов</div>
 </div>
+
 <script>
-async function poll() {
-  try {
-    const res = await fetch("/boot/api/state", { cache: "no-store" });
-    const data = await res.json();
-    render(data);
-  } catch (e) {
-    render({ state: "booting" });
-  }
-}
+"use strict";
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const MAX_LINES = 400;
 
-function render(data) {
-  const banner = document.getElementById("banner");
-  const qr = document.getElementById("qr-preview");
-  const qrHint = document.getElementById("qr-hint");
-  banner.innerHTML = "";
+  const SOURCE_COLORS = {
+    boot: "#8b7bff", orchestrator: "#8b7bff", git: "#ff9d5c", pip: "#5ab0ff", platformio: "#f5d04a", pio: "#f5d04a",
+    openocd: "#f472b6", swd: "#f472b6", mcu: "#fb7185", supervisor: "#2dd4bf", "web-core": "#4ade80",
+    "voice-interface": "#c084fc", kiosk: "#94a3b8", wifi: "#22d3ee", qr: "#a3e635", microphone: "#38bdf8",
+    camera: "#38bdf8", check: "#fbbf24", "com-link-RT": "#fb923c",
+  };
+  const FALLBACK_COLORS = ["#5eead4", "#fda4af", "#a5b4fc", "#fcd34d", "#86efac", "#7dd3fc"];
+  const REASONS = {
+    camera_unavailable: "нет камеры", mic_unavailable: "нет микрофона", internet_down: "нет интернета",
+    stlink_missing: "нет ST-Link", mcu_missing: "MCU не отвечает", firmware_unavailable: "прошивка недоступна",
+    mcu_flash_failed: "ошибка прошивки MCU", mcu_verify_failed: "MCU не прошёл проверку",
+    mcu_client_incompatible: "версия MCU не совпадает", gpio_forced: "перемычка GPIO замкнута",
+  };
+  const STATUS_ICON = { pending: "○", ok: "✔", warn: "⚠", failed: "✖", skipped: "–" };
 
-  const STEP_LABELS = {
-    starting: "Загрузка…",
-    checking_secrets: "Проверка секретов…",
-    waiting_for_qr: "Ожидание QR-кода",
-    probing_hardware: "Проверка оборудования…",
-    updating_repos: "Обновление репозиториев…",
-    flashing_firmware: "Прошивка микроконтроллера…",
-    starting_services: "Запуск сервисов…",
-    done: "Загрузка…",
+  const els = {
+    log: $("log"), cursor: $("cursor"), jump: $("jump"), count: $("count"), live: $("live"), liveText: $("live-text"),
+    steps: $("steps"), rail: $("rail"), now: $("now"), fill: $("fill"), progress: $("progress"), pct: $("pct"),
+    badge: $("badge"), badgeText: $("badge-text"), clock: $("clock"), reasons: $("reasons"), openBtn: $("open-btn"),
+    qrCard: $("qr-card"), qrImg: $("qr-img"), footLeft: $("foot-left"), footRight: $("foot-right"),
   };
 
-  if (data.state === "booting" || data.state === "unknown") {
-    banner.className = "banner booting";
-    banner.textContent = STEP_LABELS[data.step] || "Загрузка…";
-  } else if (data.production) {
-    banner.className = "banner prod";
-    banner.textContent = "PROD";
-  } else {
-    banner.className = "banner nonprod";
-    banner.textContent = "NON-PROD";
-    if (data.reasons && data.reasons.length) {
-      const ul = document.createElement("ul");
-      ul.className = "reasons";
-      for (const reason of data.reasons) {
-        const li = document.createElement("li");
-        li.textContent = reason;
-        ul.appendChild(li);
-      }
-      banner.appendChild(ul);
+  function colorFor(source) {
+    const base = String(source).split(":")[0];
+    if (SOURCE_COLORS[base]) return SOURCE_COLORS[base];
+    let h = 0;
+    for (const ch of base) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+  }
+  const SOURCE_ALIASES = { "voice-interface": "voice", supervisor: "super", "com-link-RT": "com-link", platformio: "platformio" };
+  function shortSource(source) { return SOURCE_ALIASES[source] || source; }
+  function pad(n, w = 2) { return String(n).padStart(w, "0"); }
+  function fillTime(el, ts) {
+    const d = new Date(ts * 1000);
+    el.textContent = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+    const ms = document.createElement("span");
+    ms.className = "ms";
+    ms.textContent = "." + pad(d.getMilliseconds(), 3);
+    el.appendChild(ms);
+  }
+  function fmtDuration(sec) {
+    if (sec < 0.05) return "";
+    if (sec < 60) return sec.toFixed(1) + "s";
+    return Math.floor(sec / 60) + "m" + pad(Math.floor(sec % 60)) + "s";
+  }
+  function reasonLabel(r) {
+    if (r.startsWith("secrets_missing:")) return "нет секрета " + r.split(":")[1];
+    if (r.startsWith("repo_update_failed:")) return "не обновился " + r.split(":")[1];
+    return REASONS[r] || r;
+  }
+
+  /* ---------------- log waterfall ---------------- */
+  const queue = [];
+  let lineCount = 0;
+  let last = null;
+  let pinned = true;
+  let streamEpoch = null;
+
+  els.log.addEventListener("scroll", () => {
+    pinned = els.log.scrollHeight - els.log.scrollTop - els.log.clientHeight < 40;
+    if (pinned) els.jump.classList.remove("visible");
+  });
+  els.jump.addEventListener("click", () => { pinned = true; stick(); });
+
+  function stick() {
+    if (pinned) {
+      els.log.scrollTop = els.log.scrollHeight;
+      els.jump.classList.remove("visible");
+    } else {
+      els.jump.classList.add("visible");
     }
   }
 
-  const showQr = data.step === "waiting_for_qr" ||
-    (data.reasons && data.reasons.some((r) => r.startsWith("secrets_missing")));
-  qrHint.style.display = showQr ? "block" : "none";
-  if (showQr) {
-    qr.style.display = "block";
-    qr.src = "/boot/api/qr-preview?ts=" + Date.now();
-  } else {
-    qr.style.display = "none";
+  function appendLine(ev) {
+    lineCount += 1;
+    els.count.textContent = String(lineCount);
+    const key = ev.source + "|" + ev.level + "|" + String(ev.text).replace(/\d+/g, "#");
+    const collapsible = ev.level === "info" || ev.level === "dim" || ev.level === "warn";
+    if (collapsible && last && last.key === key) {
+      last.count += 1;
+      last.cnt.textContent = "×" + last.count;
+      last.t.textContent = "";
+      fillTime(last.t, ev.ts);
+      last.txt.textContent = ev.text;
+      return;
+    }
+    const el = document.createElement("div");
+    el.className = "line lv-" + ev.level + " fresh";
+    const t = document.createElement("span"); t.className = "t"; fillTime(t, ev.ts);
+    const src = document.createElement("span"); src.className = "src"; src.textContent = shortSource(ev.source);
+    src.title = ev.source;
+    src.style.color = colorFor(ev.source);
+    const txt = document.createElement("span"); txt.className = "txt"; txt.textContent = ev.text;
+    const cnt = document.createElement("span"); cnt.className = "cnt";
+    el.append(t, src, txt, cnt);
+    els.log.insertBefore(el, els.cursor);
+    setTimeout(() => el.classList.remove("fresh"), 700);
+    last = { key, el, t, txt, cnt, count: 1 };
+    while (els.log.children.length > MAX_LINES + 1) els.log.removeChild(els.log.firstChild);
   }
-}
 
-poll();
-setInterval(poll, 1000);
+  function drain() {
+    if (!queue.length) return;
+    const backlog = queue.length;
+    const batch = backlog > 400 ? 40 : backlog > 120 ? 12 : backlog > 30 ? 4 : 1;
+    for (let i = 0; i < batch && queue.length; i++) appendLine(queue.shift());
+    stick();
+  }
+  setInterval(drain, 38);
+
+  function resetLog() {
+    queue.length = 0;
+    lineCount = 0;
+    last = null;
+    els.count.textContent = "0";
+    while (els.log.firstChild !== els.cursor) els.log.removeChild(els.log.firstChild);
+  }
+
+  function setLive(ok) {
+    els.live.classList.toggle("off", !ok);
+    els.liveText.textContent = ok ? "live" : "нет связи";
+    els.footRight.textContent = ok ? "" : "ожидание оркестратора…";
+    els.footRight.className = ok ? "" : "conn-lost";
+  }
+
+  function connect() {
+    const es = new EventSource("/boot/api/stream");
+    es.onopen = () => setLive(true);
+    es.onerror = () => setLive(false);
+    es.onmessage = (message) => {
+      let ev;
+      try { ev = JSON.parse(message.data); } catch (e) { return; }
+      const epoch = String(message.lastEventId || "").split(":")[0];
+      if (epoch && epoch !== streamEpoch) {
+        if (streamEpoch !== null) { resetLog(); resetSteps(); }
+        streamEpoch = epoch;
+      }
+      queue.push(ev);
+    };
+  }
+
+  /* ---------------- stages: sidebar rows (wide) + compact rail (robot display) ---------------- */
+  const stepRows = new Map();
+  const railCells = new Map();
+  let latestSteps = [];
+  let focusedStep = null;
+  let inspect = { id: null, until: 0 };
+
+  function resetSteps() {
+    stepRows.clear(); railCells.clear();
+    els.steps.innerHTML = ""; els.rail.innerHTML = "";
+    focusedStep = null;
+  }
+
+  function ensureRow(step) {
+    let row = stepRows.get(step.id);
+    if (row) return row;
+    const li = document.createElement("li");
+    const ico = document.createElement("span"); ico.className = "ico";
+    const body = document.createElement("div");
+    const title = document.createElement("div"); title.className = "title";
+    const detail = document.createElement("div"); detail.className = "detail";
+    body.append(title, detail);
+    const dur = document.createElement("span"); dur.className = "dur";
+    li.append(ico, body, dur);
+    els.steps.appendChild(li);
+    row = { li, ico, title, detail, dur, status: null };
+    stepRows.set(step.id, row);
+    return row;
+  }
+
+  function ensureCell(step) {
+    let cell = railCells.get(step.id);
+    if (cell) return cell;
+    const el = document.createElement("button");
+    el.type = "button";
+    el.addEventListener("click", () => {
+      inspect = { id: step.id, until: Date.now() + 6000 };
+      renderNow();
+    });
+    els.rail.appendChild(el);
+    cell = { el, status: null };
+    railCells.set(step.id, cell);
+    return cell;
+  }
+
+  function setIcon(host, status) {
+    host.innerHTML = "";
+    if (status === "running") {
+      const s = document.createElement("span"); s.className = "spin"; host.appendChild(s);
+    } else {
+      host.textContent = STATUS_ICON[status] || "○";
+    }
+  }
+
+  function renderSteps(steps) {
+    latestSteps = steps;
+    for (const step of steps) {
+      const row = ensureRow(step);
+      const cell = ensureCell(step);
+      if (row.status !== step.status) {
+        row.status = step.status;
+        row.li.className = "step " + step.status;
+        setIcon(row.ico, step.status);
+      }
+      if (cell.status !== step.status) {
+        cell.status = step.status;
+        cell.el.className = "cell " + step.status;
+        setIcon(cell.el, step.status);
+      }
+      cell.el.title = step.title;
+      cell.el.classList.toggle("inspected", inspect.id === step.id && Date.now() < inspect.until);
+      row.title.textContent = step.title;
+      row.detail.textContent = step.detail || "";
+      row.detail.title = step.detail || "";
+      row.detail.style.display = step.detail ? "" : "none";
+    }
+    let focus = steps.find((s) => s.status === "running");
+    if (!focus) {
+      for (const s of steps) if (s.status !== "pending") focus = s;
+    }
+    if (focus && focus.id !== focusedStep) {
+      focusedStep = focus.id;
+      const row = stepRows.get(focus.id);
+      if (row) row.li.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function tickDurations() {
+    const now = Date.now() / 1000;
+    for (const step of latestSteps) {
+      const row = stepRows.get(step.id);
+      if (!row || !step.started_at) continue;
+      const end = step.finished_at || (step.status === "running" ? now : step.started_at);
+      row.dur.textContent = fmtDuration(end - step.started_at);
+    }
+  }
+
+  /* ---------------- header / "now" line ---------------- */
+  let lastState = null;
+  let elapsedBase = { value: 0, at: performance.now(), running: true };
+  let finishedSeenAt = null;
+  let qrTimer = null;
+
+  function tickClock() {
+    const sec = elapsedBase.running ? elapsedBase.value + (performance.now() - elapsedBase.at) / 1000 : elapsedBase.value;
+    els.clock.textContent = pad(Math.floor(sec / 60)) + ":" + pad(Math.floor(sec % 60));
+    tickDurations();
+    if (inspect.id && Date.now() >= inspect.until) { inspect = { id: null, until: 0 }; renderNow(); }
+  }
+  setInterval(tickClock, 500);
+
+  function setQr(active) {
+    els.qrCard.classList.toggle("visible", active);
+    if (active && !qrTimer) {
+      const refresh = () => {
+        const img = new Image();
+        img.onload = () => { els.qrImg.src = img.src; };
+        img.src = "/boot/api/qr-preview?ts=" + Date.now();
+      };
+      refresh();
+      qrTimer = setInterval(refresh, 450);
+    } else if (!active && qrTimer) {
+      clearInterval(qrTimer);
+      qrTimer = null;
+    }
+  }
+
+  function renderNow() {
+    const state = lastState;
+    els.now.innerHTML = "";
+    if (!state) return;
+    const steps = state.steps || [];
+    const msg = document.createElement("span");
+    msg.className = "msg";
+
+    const inspected = inspect.id && Date.now() < inspect.until ? steps.find((s) => s.id === inspect.id) : null;
+    const running = steps.find((s) => s.status === "running");
+    if (inspected) {
+      msg.classList.add(inspected.status === "skipped" ? "" : inspected.status);
+      msg.textContent = (STATUS_ICON[inspected.status] || "▶") + " " + inspected.title;
+      if (inspected.detail) { const d = document.createElement("small"); d.textContent = inspected.detail; msg.appendChild(d); }
+      els.now.appendChild(msg);
+      return;
+    }
+    if (state.finished) {
+      const production = !!state.production;
+      msg.classList.add(production ? "ok" : "warn");
+      msg.textContent = production ? "✔ Система готова" : "⚠ NON-PROD:";
+      els.now.appendChild(msg);
+      if (!production) {
+        const reasons = state.reasons || [];
+        for (const r of reasons) {
+          const chip = document.createElement("span"); chip.className = "chip"; chip.textContent = reasonLabel(r);
+          els.now.appendChild(chip);
+        }
+      }
+      return;
+    }
+    const current = running || [...steps].reverse().find((s) => s.status !== "pending");
+    if (current) {
+      const spin = document.createElement("span"); spin.className = "spin"; els.now.appendChild(spin);
+      msg.textContent = current.title;
+      if (current.detail) { const d = document.createElement("small"); d.textContent = current.detail; msg.appendChild(d); }
+    } else {
+      msg.textContent = "Запуск системы…";
+    }
+    els.now.appendChild(msg);
+  }
+
+  function render(state) {
+    lastState = state;
+    renderSteps(state.steps || []);
+    const percent = state.percent || 0;
+    els.fill.style.width = percent + "%";
+    els.pct.textContent = percent + "%";
+    elapsedBase = { value: state.elapsed || 0, at: performance.now(), running: !state.finished };
+
+    const qrStep = (state.steps || []).find((s) => s.id === "qr");
+    setQr(!!qrStep && qrStep.status === "running");
+
+    const running = state.state === "running";
+    const production = !!state.production;
+    els.progress.classList.toggle("done", !!state.finished && production);
+    els.progress.classList.toggle("warn", !!state.finished && !production);
+
+    if (!running) {
+      els.badge.className = "badge booting";
+      els.badgeText.textContent = "ЗАГРУЗКА";
+    } else if (production) {
+      els.badge.className = "badge prod";
+      els.badgeText.textContent = state.finished ? "PROD · ГОТОВО" : "PROD";
+    } else {
+      els.badge.className = "badge nonprod";
+      els.badgeText.textContent = "NON-PROD";
+    }
+
+    els.reasons.innerHTML = "";
+    const reasons = running && !production ? state.reasons || [] : [];
+    for (const r of reasons) {
+      const chip = document.createElement("span"); chip.className = "chip"; chip.textContent = reasonLabel(r);
+      els.reasons.appendChild(chip);
+    }
+    els.reasons.classList.toggle("visible", reasons.length > 0);
+
+    if (state.finished && finishedSeenAt === null) finishedSeenAt = performance.now();
+    const canOpen = running && state.finished && state.operator_url &&
+      (!production || performance.now() - finishedSeenAt > 4000);
+    if (canOpen) els.openBtn.href = state.operator_url;
+    els.openBtn.classList.toggle("visible", !!canOpen);
+    els.footLeft.textContent = state.finished ? "загрузка завершена" : "идёт запуск системы";
+    renderNow();
+  }
+
+  let failures = 0;
+  async function pollState() {
+    let delay = 700;
+    try {
+      const response = await fetch("/boot/api/state", { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status));
+      const state = await response.json();
+      failures = 0;
+      render(state);
+      if (state.finished) delay = 2000;
+    } catch (e) {
+      failures += 1;
+      if (failures >= 3) setLive(false);
+    }
+    setTimeout(pollState, delay);
+  }
+
+  connect();
+  pollState();
+})();
 </script>
 </body>
 </html>

@@ -26,3 +26,4 @@ class AdminContext:
     request_restart: Callable[[], None] | None = None
     boot_result: BootResult | None = None
     boot_progress: BootProgress | None = None
+    operator_url: str | None = None

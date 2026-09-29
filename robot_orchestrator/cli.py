@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -12,8 +13,10 @@ import uvicorn
 import yaml
 
 from robot_orchestrator import log as logmod
+from robot_orchestrator.bootlog import BOOT_LOG, BootLogHandler, logged_run
 from robot_orchestrator.boot.decision import capability
 from robot_orchestrator.boot.fsm import BootProgress, BootSequence
+from robot_orchestrator.boot.progress import OK, SKIPPED, WARN
 from robot_orchestrator.boot.hardware import resolve_camera_device, resolve_mcu_port
 from robot_orchestrator.config import Settings, load_settings
 from robot_orchestrator.firmware.github_artifacts import GithubArtifactClient
@@ -103,12 +106,12 @@ def _ensure_platformio_venv(paths: Paths) -> Path:
     if marker.exists():
         return venv_path
     venv_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, "-m", "venv", str(venv_path)], check=True, capture_output=True, text=True)
-    subprocess.run([str(venv_pip(venv_path)), "install", "platformio"], check=True, capture_output=True, text=True)
+    logged_run([sys.executable, "-m", "venv", str(venv_path)], source="platformio", check=True)
+    logged_run([str(venv_pip(venv_path)), "install", "platformio"], source="platformio", check=True)
     env = {**os.environ, "PLATFORMIO_CORE_DIR": str(paths.pio_core_dir)}
-    subprocess.run(
+    logged_run(
         [str(venv_python(venv_path)), "-m", "platformio", "pkg", "install", "-g", "-t", "platformio/tool-openocd"],
-        env=env, check=True, capture_output=True, text=True,
+        source="platformio", env=env, check=True,
     )
     marker.write_text("")
     return venv_path
@@ -140,7 +143,7 @@ def _make_mcu_client_factory(paths: Paths, db: Database, target, mcu_port_resolv
 
         def runner(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
             env = {**os.environ, "PYTHONPATH": str(release_dir), "PYTHONNOUSERSITE": "1"}
-            return subprocess.run(argv, env=env, cwd=release_dir, capture_output=True, text=True, timeout=timeout)
+            return logged_run(argv, source="mcu", env=env, cwd=release_dir, timeout=timeout)
 
         return SubprocessMcuClient(
             python_executable, mcu_probe_script, port,
@@ -156,8 +159,7 @@ def _build_firmware_workflows(settings: Settings, paths: Paths, journal: Journal
     openocd_pkg_dir = paths.pio_core_dir / "packages" / "tool-openocd"
     for target in settings.firmware_targets:
         artifact_client = GithubArtifactClient(target.ci, token=pat)
-        pio_venv = _ensure_platformio_venv(paths)
-        builder = PioFirmwareBuilder(paths.pio_core_dir, str(venv_python(pio_venv)))
+        builder = PioFirmwareBuilder(paths.pio_core_dir, str(venv_python(paths.platformio_venv)))
         flasher = OpenOcdFlasher(
             openocd_binary=openocd_pkg_dir / "bin" / "openocd",
             scripts_dir=openocd_pkg_dir / "openocd" / "scripts",
@@ -188,6 +190,7 @@ def _build_qr_scanner(settings: Settings, paths: Paths, hal):
             "--preview-path", str(paths.qr_preview),
             "--preview-fps", str(settings.qr.preview_fps),
         ]
+        BOOT_LOG.emit("qr", f"камера {device}: жду QR-коды (до {int(settings.qr.scan_timeout_s)}с)", "info")
         process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         try:
             for line in process.stdout:
@@ -195,9 +198,17 @@ def _build_qr_scanner(settings: Settings, paths: Paths, hal):
                     event = json.loads(line)
                 except ValueError:
                     continue
-                if event.get("event") == "complete":
+                kind = event.get("event")
+                if kind == "part":
+                    BOOT_LOG.emit("qr", f"считано {event.get('received')} из {event.get('total')} QR-кодов", "info")
+                elif kind == "complete":
+                    BOOT_LOG.emit("qr", "все QR-коды считаны, проверяю целостность", "ok")
                     return SecretsPayload.model_validate(event["payload"])
-                if event.get("event") in ("timeout", "camera_error"):
+                elif kind == "timeout":
+                    BOOT_LOG.emit("qr", "время ожидания QR-кода истекло", "warn")
+                    return None
+                elif kind == "camera_error":
+                    BOOT_LOG.emit("qr", f"ошибка камеры: {event.get('detail')}", "error")
                     return None
             return None
         finally:
@@ -212,13 +223,18 @@ def _build_qr_scanner(settings: Settings, paths: Paths, hal):
     return scan_qr
 
 
-async def _navigate_kiosk(settings: Settings, generated: dict) -> None:
-    url = render(settings.kiosk.operator_url, {"secret.MASTER_TOKEN": generated.get("MASTER_TOKEN", "")})
+def _operator_url(settings: Settings, generated: dict) -> str:
+    return render(settings.kiosk.operator_url, {"secret.MASTER_TOKEN": generated.get("MASTER_TOKEN", "")})
+
+
+async def _navigate_kiosk(settings: Settings, generated: dict) -> bool:
     controller = KioskController()
     try:
-        await controller.navigate(url)
-    except CdpError:
-        pass
+        await controller.navigate(_operator_url(settings, generated))
+    except CdpError as e:
+        BOOT_LOG.emit("kiosk", f"не удалось переключить экран: {e}", "warn")
+        return False
+    return True
 
 
 async def _wait_for_port(host: str, port: int, timeout_s: float = 15.0) -> None:
@@ -256,6 +272,8 @@ async def _watchdog_loop(notifier: SdNotifier, stop_event: asyncio.Event) -> Non
 
 async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Namespace) -> None:
     logmod.configure_logging(paths.orchestrator_log)
+    logging.getLogger().addHandler(BootLogHandler())
+    BOOT_LOG.emit("boot", "оркестратор запущен", "info")
     db = Database(paths.state_db)
     journal = Journal(db, boot_id=uuid.uuid4().hex)
 
@@ -267,6 +285,7 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
     elif orch_admin_password:
         web_auth.apply_password_if_default(paths, settings.web.admin_user, orch_admin_password)
     generated = secrets_store.ensure_generated_secrets(paths)
+    BOOT_LOG.set_known_secrets(secrets_store.all_secret_values(paths))
 
     hal = _build_hal(settings, paths, args)
     repo_managers = _build_repo_managers(settings, paths, journal, db)
@@ -288,7 +307,7 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
         repo_managers=repo_managers, firmware_workflows=firmware_workflows,
         supervisor=supervisor, scan_qr=scan_qr, wifi_manager=wifi_manager,
         self_update_manager=self_update_manager, request_restart=stop_event.set,
-        boot_progress=boot_progress,
+        boot_progress=boot_progress, operator_url=_operator_url(settings, generated),
     )
 
     sequence = BootSequence(
@@ -296,6 +315,7 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
         repo_managers, firmware_workflows, supervisor,
         scan_qr=scan_qr, recovery_committing_handlers=recovery_handlers, wifi_manager=wifi_manager,
         progress=boot_progress,
+        ensure_tooling=(lambda: _ensure_platformio_venv(paths)) if settings.firmware_targets else None,
     )
 
     notifier = SdNotifier()
@@ -319,7 +339,16 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
     notifier.ready()
 
     if result.mode.production and capability(result.mode, "kiosk_browser"):
-        await _navigate_kiosk(settings, generated)
+        boot_progress.begin("handoff", "переключаю экран на интерфейс оператора")
+        if await _navigate_kiosk(settings, generated):
+            boot_progress.finish("handoff", OK, "интерфейс оператора открыт")
+        else:
+            boot_progress.finish("handoff", WARN, "не удалось переключить экран автоматически")
+    else:
+        boot_progress.begin("handoff")
+        boot_progress.finish("handoff", SKIPPED, "NON-PROD — автопереход отключён, откройте web-core вручную")
+    boot_progress.complete()
+    BOOT_LOG.emit("boot", "загрузка завершена", "ok")
 
     self_update_task = None
     if settings.self_update.enabled:

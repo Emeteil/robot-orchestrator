@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
+from robot_orchestrator.bootlog import logged_run
 from robot_orchestrator.config import FirmwareFlashConfig
 from robot_orchestrator.hal.base import FlashResult
 
@@ -9,7 +10,7 @@ RunnerT = Callable[[list[str], float], subprocess.CompletedProcess]
 
 
 def _default_runner(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    return logged_run(argv, source="openocd", timeout=timeout)
 
 
 class OpenOcdFlasher:

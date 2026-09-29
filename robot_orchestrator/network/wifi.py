@@ -1,13 +1,15 @@
 import subprocess
 from typing import Callable
 
+from robot_orchestrator.bootlog import logged_run
 from robot_orchestrator.secrets.protocol import WifiCredential
 
 RunnerT = Callable[[list[str], float], subprocess.CompletedProcess]
 
 
 def _default_runner(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    passwords = tuple(argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "password")
+    return logged_run(argv, source="wifi", timeout=timeout, mask=passwords)
 
 
 class WifiManager:

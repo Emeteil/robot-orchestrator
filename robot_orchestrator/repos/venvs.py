@@ -1,11 +1,11 @@
 import hashlib
 import os
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from robot_orchestrator.bootlog import BOOT_LOG, logged_run
 from robot_orchestrator.config import PythonRequirementsConfig
 
 _NAME_SPLIT_RE = re.compile(r"[=<>!;\[\s]")
@@ -74,14 +74,22 @@ class VenvBuilder:
         marker = venv_path / ".complete"
         if marker.exists():
             return VenvBuildResult(venv_path, reqhash, reused=True)
-        self._build(venv_path, release_dir, python_config)
+        BOOT_LOG.emit(f"pip:{repo}", f"собираю окружение {repo} (хэш зависимостей {reqhash})", "info")
+        self._build(venv_path, release_dir, python_config, source=f"pip:{repo}")
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text("")
+        BOOT_LOG.emit(f"pip:{repo}", f"окружение {repo} готово", "ok")
         return VenvBuildResult(venv_path, reqhash, reused=False)
 
-    def _build(self, venv_path: Path, release_dir: Path, python_config: PythonRequirementsConfig) -> None:
+    def _build(
+        self,
+        venv_path: Path,
+        release_dir: Path,
+        python_config: PythonRequirementsConfig,
+        source: str = "pip",
+    ) -> None:
         venv_path.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run([sys.executable, "-m", "venv", str(venv_path)], check=True, capture_output=True, text=True)
+        logged_run([sys.executable, "-m", "venv", str(venv_path)], source=source, check=True)
         pip = str(venv_pip(venv_path))
 
         lines = _read_requirement_lines(release_dir, python_config.requirements)
@@ -90,29 +98,22 @@ class VenvBuilder:
         rest_lines = [line for line in lines if package_name(line).lower() not in no_deps_names]
 
         for line in no_deps_lines:
-            subprocess.run([pip, "install", "--no-deps", line], check=True, capture_output=True, text=True)
+            logged_run([pip, "install", "--no-deps", line], source=source, check=True)
 
         if rest_lines:
             self.wheelhouse.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                [pip, "download", "-d", str(self.wheelhouse), *rest_lines],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            subprocess.run(
+            logged_run([pip, "download", "-d", str(self.wheelhouse), *rest_lines], source=source, check=True)
+            logged_run(
                 [pip, "install", "--no-index", "--find-links", str(self.wheelhouse), *rest_lines],
-                check=True,
-                capture_output=True,
-                text=True,
+                source=source, check=True,
             )
 
         for line in no_deps_lines:
             if package_name(line).lower() == "openwakeword":
                 python = str(venv_python(venv_path))
-                subprocess.run(
+                logged_run(
                     [python, "-c", "from openwakeword.utils import download_models; download_models()"],
-                    check=True, capture_output=True, text=True,
+                    source=source, check=True,
                 )
 
 

@@ -6,6 +6,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from robot_orchestrator.bootlog import logged_run
+
 GIT_ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
 
 
@@ -45,15 +47,20 @@ def ensure_mirror_fresh(mirror: Path, url: str, timeout: float | None = None) ->
         clone_mirror(url, mirror, timeout=timeout)
 
 
-def run(args: list[str], cwd: Path | None = None, timeout: float | None = None) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=str(cwd) if cwd else None,
-        env=GIT_ENV,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+def run(args: list[str], cwd: Path | None = None, timeout: float | None = None, stream: bool = False) -> str:
+    if stream:
+        result = logged_run(
+            ["git", *args], source="git", cwd=str(cwd) if cwd else None, env=GIT_ENV, timeout=timeout,
+        )
+    else:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd) if cwd else None,
+            env=GIT_ENV,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
     if result.returncode != 0:
         raise GitError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout.strip()
@@ -61,11 +68,14 @@ def run(args: list[str], cwd: Path | None = None, timeout: float | None = None) 
 
 def clone_mirror(url: str, dest: Path, timeout: float | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    run(["clone", "--mirror", url, str(dest)], timeout=timeout)
+    run(["clone", "--mirror", url, str(dest)], timeout=timeout, stream=True)
 
 
 def fetch_all_refs(mirror: Path, timeout: float | None = None) -> None:
-    run(["-C", str(mirror), "fetch", "--prune", "origin", "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"], timeout=timeout)
+    run(
+        ["-C", str(mirror), "fetch", "--prune", "origin", "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"],
+        timeout=timeout, stream=True,
+    )
 
 
 def fsck(mirror: Path) -> bool:
@@ -90,11 +100,11 @@ def has_object(mirror: Path, sha: str) -> bool:
 
 def clone_no_checkout(mirror: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    run(["clone", "--no-checkout", str(mirror), str(dest)])
+    run(["clone", "--no-checkout", str(mirror), str(dest)], stream=True)
 
 
 def checkout_detach(worktree: Path, sha: str) -> None:
-    run(["-C", str(worktree), "checkout", "--detach", sha])
+    run(["-C", str(worktree), "checkout", "--detach", sha], stream=True)
 
 
 def read_gitmodules(worktree: Path, sha: str) -> str | None:
@@ -116,7 +126,10 @@ def set_submodule_url(worktree: Path, path: str, url: str) -> None:
 
 
 def submodule_update_init_recursive(worktree: Path) -> None:
-    run(["-c", "protocol.file.allow=always", "-C", str(worktree), "submodule", "update", "--init", "--recursive"])
+    run(
+        ["-c", "protocol.file.allow=always", "-C", str(worktree), "submodule", "update", "--init", "--recursive"],
+        stream=True,
+    )
 
 
 def parse_gitmodules(content: str) -> list[dict]:

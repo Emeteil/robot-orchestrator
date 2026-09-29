@@ -9,11 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from robot_orchestrator.bootlog import BOOT_LOG, logged_run
 from robot_orchestrator.boot.context import BootFacts
 from robot_orchestrator.boot.decision import ModeDecision, decide_mode
 from robot_orchestrator.boot.hardware import resolve_camera_device, resolve_chromium_bin, resolve_mcu_port
+from robot_orchestrator.boot.progress import FAILED, OK, SKIPPED, WARN, BootProgress
 from robot_orchestrator.config import Settings
-from robot_orchestrator.hal.base import ProbeResult
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.repos.manager import RELEASE_MARKER, RepoManager
 from robot_orchestrator.repos.venvs import venv_python
@@ -38,9 +39,7 @@ class BootResult:
     services_ready: dict[str, bool]
 
 
-@dataclass
-class BootProgress:
-    step: str = "starting"
+__all__ = ["BootProgress", "BootResult", "BootSequence"]
 
 
 class BootSequence:
@@ -58,6 +57,7 @@ class BootSequence:
         recovery_committing_handlers: dict | None = None,
         wifi_manager=None,
         progress: "BootProgress | None" = None,
+        ensure_tooling: Callable[[], None] | None = None,
     ):
         self.settings = settings
         self.paths = paths
@@ -71,6 +71,7 @@ class BootSequence:
         self.recovery_committing_handlers = recovery_committing_handlers
         self.wifi_manager = wifi_manager
         self.progress = progress or BootProgress()
+        self.ensure_tooling = ensure_tooling
 
     def prepare_early_services(self) -> list[str]:
         placeholder_mode = ModeDecision(production=False, reasons=[], capabilities={})
@@ -83,43 +84,60 @@ class BootSequence:
         return names
 
     async def run(self) -> BootResult:
+        progress = self.progress
         boot_id = uuid.uuid4().hex
         started_at = time.time()
+
+        progress.begin("init", "база состояния")
         with self.db.transaction() as conn:
             store.insert_boot_history(
                 conn, boot_id, started_at,
                 gpio_forced=None, mode=None, reasons="[]", facts="{}", final_state="running",
             )
+        progress.finish("init", OK, f"загрузка {boot_id[:8]}")
 
-        recovery.run(self.db, self.journal, committing_handlers=self.recovery_committing_handlers)
+        progress.begin("recover", "проверяю журнал операций после возможного обрыва питания")
+        report = recovery.run(self.db, self.journal, committing_handlers=self.recovery_committing_handlers)
+        progress.finish("recover", OK, self._describe_recovery(report))
 
         facts = BootFacts()
-        facts.gpio_forced = self._read_gpio()
+        self._step_gpio(facts)
+        await self._step_secrets(facts)
+        camera_device = await self._step_hardware(facts)
+        await self._step_tooling()
+        await self._step_mcu(facts)
 
-        self.progress.step = "checking_secrets"
-        await self._maybe_scan_qr(facts)
-
-        self.progress.step = "probing_hardware"
-        camera_device = await asyncio.to_thread(
-            resolve_camera_device, self.settings.hardware.camera, self.hal.camera_probe
-        )
-        await asyncio.to_thread(self._probe_hardware, facts, camera_device)
-
-        self.progress.step = "updating_repos"
+        progress.begin("repos", f"{len(self.repo_managers)} репозитория")
         await asyncio.to_thread(self._update_repos, facts)
-        self.progress.step = "flashing_firmware"
-        await asyncio.to_thread(self._run_firmware_targets, facts)
+        failed_repos = facts.repo_update_failures
+        if failed_repos:
+            progress.finish("repos", WARN, "не обновились: " + ", ".join(failed_repos))
+        else:
+            progress.finish("repos", OK, "все репозитории актуальны")
 
+        progress.begin("firmware")
+        outcomes = await asyncio.to_thread(self._run_firmware_targets, facts)
+        self._finish_firmware_step(outcomes)
+
+        progress.begin("mode", "сверяю все факты")
         mode = decide_mode(facts)
+        if mode.production:
+            progress.finish("mode", OK, "PROD — все условия выполнены")
+        else:
+            progress.finish("mode", WARN, "NON-PROD — " + ", ".join(mode.reasons))
 
-        self.progress.step = "starting_services"
+        progress.begin("services", "запускаю по цепочке зависимостей")
         mcu_port = resolve_mcu_port(self.settings.hardware.mcu, self.hal.usb_inventory)
         self._prepare_services(mode, camera_device, mcu_port)
 
         main_services = [s for s in self.settings.services if s.phase != "early"]
         order = topological_order(main_services)
         services_ready = await self.supervisor.start_ordered(order, mode.capabilities)
-        self.progress.step = "done"
+        not_ready = [name for name, ready in services_ready.items() if not ready]
+        if not_ready:
+            progress.finish("services", WARN, "не поднялись: " + ", ".join(not_ready))
+        else:
+            progress.finish("services", OK, ", ".join(order) + " готовы")
 
         with self.db.transaction() as conn:
             store.update_boot_history(
@@ -146,45 +164,140 @@ class BootSequence:
         except Exception:
             return gpio_cfg.on_error == "nonprod"
 
-    async def _maybe_scan_qr(self, facts: BootFacts) -> None:
+    @staticmethod
+    def _describe_recovery(report) -> str:
+        total = len(report.rolled_back) + len(report.rolled_forward) + len(report.abandoned)
+        if total == 0:
+            return "незавершённых операций нет"
+        return (
+            f"восстановлено операций: {total} "
+            f"(откат {len(report.rolled_back)}, докатка {len(report.rolled_forward)}, "
+            f"отброшено {len(report.abandoned)})"
+        )
+
+    def _step_gpio(self, facts: BootFacts) -> None:
+        progress = self.progress
+        progress.begin("gpio")
+        gpio_cfg = self.settings.gpio
+        facts.gpio_forced = self._read_gpio()
+        if not gpio_cfg.is_configured():
+            progress.skip("gpio", "проверка не настроена")
+        elif facts.gpio_forced:
+            progress.finish("gpio", WARN, "перемычка замкнута — принудительный NON-PROD")
+        else:
+            progress.finish("gpio", OK, "перемычка разомкнута")
+
+    async def _step_secrets(self, facts: BootFacts) -> None:
+        progress = self.progress
         required = self.settings.secrets.required
+        progress.begin("secrets", "проверяю обязательные ключи")
         missing = secrets_store.missing_required_secrets(self.paths, required)
-        if missing and self.scan_qr is not None:
-            self.progress.step = "waiting_for_qr"
-            payload = await asyncio.to_thread(self.scan_qr)
-            if payload is not None:
-                ingest_payload(self.paths, self.journal, payload)
-                missing = secrets_store.missing_required_secrets(self.paths, required)
-                orch_admin_password = payload.secrets.get("ORCH_ADMIN_PASSWORD")
-                if orch_admin_password:
-                    web_auth.apply_password_if_default(
-                        self.paths, self.settings.web.admin_user, orch_admin_password
-                    )
+        if not missing:
+            progress.finish("secrets", OK, f"все {len(required)} ключа на месте")
+            progress.skip("qr", "секреты уже введены")
+            facts.missing_required_secrets = []
+            return
+
+        progress.finish("secrets", WARN, "не хватает: " + ", ".join(missing))
+        if self.scan_qr is None:
+            progress.skip("qr", "сканер недоступен")
+            facts.missing_required_secrets = missing
+            return
+
+        progress.begin("qr", "покажите камере робота лист с QR-кодами")
+        payload = await asyncio.to_thread(self.scan_qr)
+        if payload is None:
+            progress.finish("qr", WARN, "QR-код не получен")
+        else:
+            ingest_payload(self.paths, self.journal, payload)
+            BOOT_LOG.set_known_secrets(secrets_store.all_secret_values(self.paths))
+            missing = secrets_store.missing_required_secrets(self.paths, required)
+            orch_admin_password = payload.secrets.get("ORCH_ADMIN_PASSWORD")
+            if orch_admin_password:
+                web_auth.apply_password_if_default(
+                    self.paths, self.settings.web.admin_user, orch_admin_password
+                )
+            progress.finish("qr", OK, "секреты приняты и сохранены")
         facts.missing_required_secrets = missing
 
-    def _probe_hardware(self, facts: BootFacts, camera_device: str | None) -> None:
-        if camera_device is not None:
-            camera_result = self.hal.camera_probe.probe(camera_device)
+    async def _step_hardware(self, facts: BootFacts) -> str | None:
+        progress = self.progress
+
+        progress.begin("camera", "ищу веб-камеру")
+        camera_device = await asyncio.to_thread(
+            resolve_camera_device, self.settings.hardware.camera, self.hal.camera_probe
+        )
+        if camera_device is None:
+            facts.camera_ok = False
+            progress.finish("camera", FAILED, "рабочая камера не найдена")
         else:
-            camera_result = ProbeResult(ok=False, detail="no camera device resolved")
-        facts.camera_ok = camera_result.ok
+            camera_result = await asyncio.to_thread(self.hal.camera_probe.probe, camera_device)
+            facts.camera_ok = camera_result.ok
+            progress.finish("camera", OK if camera_result.ok else FAILED, camera_result.detail)
 
-        facts.mic_ok = self.hal.mic_probe.probe().ok
-        facts.internet_ok = self.hal.net_probe.probe().ok
-        if not facts.internet_ok and self.wifi_manager is not None:
+        progress.begin("microphone", "записываю пробный сигнал")
+        mic_result = await asyncio.to_thread(self.hal.mic_probe.probe)
+        facts.mic_ok = mic_result.ok
+        progress.finish("microphone", OK if mic_result.ok else FAILED, mic_result.detail)
+
+        progress.begin("network", "проверяю выход в интернет")
+        net_result = await asyncio.to_thread(self.hal.net_probe.probe)
+        facts.internet_ok = net_result.ok
+        if not net_result.ok and self.wifi_manager is not None:
             known = secrets_store.load_wifi_credentials(self.paths)
-            if known and self.wifi_manager.try_known_networks(known) is not None:
-                facts.internet_ok = self.hal.net_probe.probe().ok
+            if known:
+                progress.update("network", "интернета нет — пробую известные Wi-Fi сети")
+                connected = await asyncio.to_thread(self.wifi_manager.try_known_networks, known)
+                if connected is not None:
+                    net_result = await asyncio.to_thread(self.hal.net_probe.probe)
+                    facts.internet_ok = net_result.ok
+        progress.finish("network", OK if facts.internet_ok else FAILED, net_result.detail)
+        return camera_device
 
-        facts.stlink_present = self.hal.swd_probe.stlink_present()
-        facts.mcu_present = facts.stlink_present and self.hal.swd_probe.target_present()
+    async def _step_tooling(self) -> None:
+        progress = self.progress
+        if self.ensure_tooling is None:
+            progress.skip("tooling", "не требуется")
+            return
+        progress.begin("tooling", "PlatformIO и OpenOCD")
+        try:
+            await asyncio.to_thread(self.ensure_tooling)
+        except Exception as e:
+            progress.finish("tooling", FAILED, str(e).splitlines()[0][:160] if str(e) else type(e).__name__)
+            return
+        progress.finish("tooling", OK, "инструменты готовы")
+
+    async def _step_mcu(self, facts: BootFacts) -> None:
+        progress = self.progress
+        progress.begin("mcu", "ищу ST-Link на USB")
+        facts.stlink_present = await asyncio.to_thread(self.hal.swd_probe.stlink_present)
+        if not facts.stlink_present:
+            facts.mcu_present = False
+            progress.finish("mcu", FAILED, "ST-Link не найден")
+            return
+        progress.update("mcu", "ST-Link найден — читаю IDCODE микроконтроллера по SWD")
+        facts.mcu_present = await asyncio.to_thread(self.hal.swd_probe.target_present)
+        if facts.mcu_present:
+            progress.finish("mcu", OK, "STM32 отвечает по SWD")
+        else:
+            progress.finish("mcu", FAILED, "ST-Link есть, но микроконтроллер не отвечает")
 
     def _update_repos(self, facts: BootFacts) -> None:
         for name, manager in self.repo_managers.items():
+            self.progress.update("repos", f"{name}: проверяю обновления")
+            self.progress.note(f"{name}: синхронизация с {manager.config.url} ({manager.config.branch})", source=name)
             result = manager.sync()
             if result.error is not None and result.sha is None:
                 facts.repo_update_failures.append(name)
-            elif name == "web-core":
+                self.progress.note(f"{name}: не удалось обновить — {result.error}", "error", source=name)
+                continue
+            if result.error is not None:
+                self.progress.note(f"{name}: {result.error}", "warn", source=name)
+            elif result.changed:
+                self.progress.note(f"{name}: новый релиз {(result.sha or '')[:12]}", "ok", source=name)
+            else:
+                self.progress.note(f"{name}: уже актуален {(result.sha or '')[:12]}", "info", source=name)
+            if name == "web-core":
                 self._ensure_webcore_admin()
 
     def _ensure_webcore_admin(self) -> None:
@@ -211,21 +324,47 @@ class BootSequence:
             return
 
         env = {**os.environ, "ADMIN_PASSWORD": admin_password}
+        self.progress.note("web-core: проверяю учётную запись администратора", source="web-core")
         try:
-            subprocess.run(
-                [str(python), str(script)], cwd=release_dir, env=env,
-                capture_output=True, text=True, timeout=30.0,
+            logged_run(
+                [str(python), str(script)], source="web-core", cwd=release_dir, env=env, timeout=30.0,
             )
         except (OSError, subprocess.TimeoutExpired):
             pass
 
-    def _run_firmware_targets(self, facts: BootFacts) -> None:
+    def _run_firmware_targets(self, facts: BootFacts) -> list[tuple[str, object]]:
+        outcomes = []
         for name, workflow in self.firmware_workflows.items():
             repo_state = store.get_repo_state(self.db.conn, workflow.target.repo)
             if repo_state is None or repo_state.get("current_sha") is None or repo_state.get("current_release") is None:
+                self.progress.note(f"{name}: репозиторий прошивки ещё не готов — пропускаю", "warn", source=name)
                 continue
+            self.progress.update("firmware", f"{name}: сверяю версию прошивки")
             outcome = workflow.run(repo_state["current_sha"], Path(repo_state["current_release"]))
             self._apply_flash_outcome(facts, outcome)
+            outcomes.append((name, outcome))
+        return outcomes
+
+    def _finish_firmware_step(self, outcomes: list[tuple[str, object]]) -> None:
+        progress = self.progress
+        if not outcomes:
+            progress.finish("firmware", SKIPPED, "нет данных о прошивке")
+            return
+        failed = [(name, o) for name, o in outcomes if o.state == "failed"]
+        if failed:
+            details = ", ".join(f"{name}: {o.reason}" for name, o in failed)
+            progress.finish("firmware", FAILED, details)
+            return
+        skipped = [(name, o) for name, o in outcomes if o.state == "skipped"]
+        if skipped and len(skipped) == len(outcomes):
+            details = ", ".join(f"{name}: {o.reason}" for name, o in skipped)
+            progress.finish("firmware", SKIPPED, details)
+            return
+        flashed = [name for name, o in outcomes if o.state == "flashed"]
+        if flashed:
+            progress.finish("firmware", OK, "прошито и проверено: " + ", ".join(flashed))
+        else:
+            progress.finish("firmware", OK, "прошивка актуальна")
 
     def _apply_flash_outcome(self, facts: BootFacts, outcome) -> None:
         if outcome.state == "failed":

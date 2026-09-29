@@ -52,6 +52,14 @@ def ensure_generated_secrets(paths: Paths) -> dict:
     return _load_generated(paths)
 
 
+def all_secret_values(paths: Paths) -> list[str]:
+    data = load_secrets(paths)
+    values = [str(v) for v in (data.get("secrets", {}) or {}).values() if v]
+    values += [str(w.get("psk")) for w in (data.get("wifi", []) or []) if w.get("psk")]
+    values += [str(v) for v in _load_generated(paths).values() if v]
+    return values
+
+
 def missing_required_secrets(paths: Paths, required: list[str]) -> list[str]:
     secrets_data = load_secrets(paths).get("secrets", {}) or {}
     generated_data = _load_generated(paths)

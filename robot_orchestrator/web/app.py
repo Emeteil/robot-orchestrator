@@ -1,11 +1,15 @@
+import asyncio
+import json
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from robot_orchestrator import bootlog
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.web import auth, routes_api, routes_sse
 from robot_orchestrator.web.context import AdminContext
@@ -28,6 +32,63 @@ def require_loopback(request: Request) -> None:
     host = request.client.host if request.client else None
     if host not in LOOPBACK_HOSTS:
         raise HTTPException(status_code=403, detail="loopback only")
+
+
+def _resume_position(request: Request) -> int:
+    raw = request.headers.get("last-event-id") or request.query_params.get("last") or ""
+    epoch, _, seq = raw.partition(":")
+    if epoch == bootlog.BOOT_LOG.epoch and seq.isdigit():
+        return int(seq)
+    return 0
+
+
+def _format_event(event: dict, epoch: str) -> str:
+    return f"id: {epoch}:{event['seq']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+async def boot_event_stream(
+    log: bootlog.BootEventLog,
+    after_seq: int,
+    is_disconnected: Callable[[], Awaitable[bool]],
+    backlog_limit: int = 600,
+    keepalive_s: float = 15.0,
+):
+    queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
+    loop = asyncio.get_running_loop()
+
+    def offer(event: dict) -> None:
+        try:
+            queue.put_nowait(event)
+        except asyncio.QueueFull:
+            pass
+
+    def on_event(event: dict) -> None:
+        try:
+            loop.call_soon_threadsafe(offer, event)
+        except RuntimeError:
+            pass
+
+    log.subscribe(on_event)
+    try:
+        yield "retry: 2000\n\n"
+        last = after_seq
+        for event in log.tail(after_seq, backlog_limit):
+            last = event["seq"]
+            yield _format_event(event, log.epoch)
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=keepalive_s)
+            except asyncio.TimeoutError:
+                if await is_disconnected():
+                    return
+                yield ": keepalive\n\n"
+                continue
+            if event["seq"] <= last:
+                continue
+            last = event["seq"]
+            yield _format_event(event, log.epoch)
+    finally:
+        log.unsubscribe(on_event)
 
 
 def create_app(
@@ -76,17 +137,33 @@ def create_app(
     @app.get("/boot/api/state")
     def boot_state(request: Request):
         require_loopback(request)
+        progress = context.boot_progress.snapshot() if context and context.boot_progress else {}
+        base = {**progress, "epoch": bootlog.BOOT_LOG.epoch}
         if context is None or context.boot_result is None:
-            step = context.boot_progress.step if context and context.boot_progress else "starting"
-            return {"state": "booting", "step": step}
+            base.setdefault("step", "starting")
+            return {"state": "booting", **base}
         boot = context.boot_result
+        finished = bool(context.boot_progress and context.boot_progress.finished_at)
         return {
             "state": "running",
+            **base,
+            "finished": finished,
             "production": boot.mode.production,
             "reasons": boot.mode.reasons,
             "capabilities": boot.mode.capabilities,
             "services_ready": boot.services_ready,
+            "operator_url": context.operator_url,
         }
+
+    @app.get("/boot/api/stream", include_in_schema=False)
+    async def boot_stream(request: Request):
+        require_loopback(request)
+        after = _resume_position(request)
+        return StreamingResponse(
+            boot_event_stream(bootlog.BOOT_LOG, after, request.is_disconnected),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.get("/boot/api/qr-preview", include_in_schema=False)
     def qr_preview(request: Request):

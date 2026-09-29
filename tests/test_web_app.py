@@ -1,10 +1,15 @@
+import types
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from robot_orchestrator import bootlog
+from robot_orchestrator.boot.progress import OK, BootProgress
+from robot_orchestrator.bootlog import BootEventLog
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.web import auth
-from robot_orchestrator.web.app import create_app
+from robot_orchestrator.web.app import _resume_position, boot_event_stream, create_app
 
 
 @pytest.fixture
@@ -131,3 +136,108 @@ async def test_qr_preview_serves_the_image_once_present(app, paths):
         response = await c.get("/boot/api/qr-preview")
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/jpeg"
+
+
+async def test_boot_state_reports_steps_percent_and_epoch_while_booting(paths):
+    progress = BootProgress(log=BootEventLog())
+    progress.begin("init")
+    context = types.SimpleNamespace(boot_progress=progress, boot_result=None, operator_url=None)
+    app = create_app(paths, jwt_secret="s", context=context)
+
+    async with loopback_client(app) as c:
+        body = (await c.get("/boot/api/state")).json()
+
+    assert body["state"] == "booting"
+    assert body["step"] == "init"
+    assert body["steps"][0]["status"] == "running"
+    assert body["epoch"] == bootlog.BOOT_LOG.epoch
+    assert 0 < body["percent"] < 100
+
+
+async def test_boot_state_exposes_operator_url_and_finished_flag_when_done(paths):
+    progress = BootProgress(log=BootEventLog())
+    progress.finish("init", OK)
+    progress.complete()
+    boot_result = types.SimpleNamespace(
+        mode=types.SimpleNamespace(production=False, reasons=["mic_unavailable"], capabilities={}),
+        services_ready={"web-core": True},
+    )
+    context = types.SimpleNamespace(
+        boot_progress=progress, boot_result=boot_result, operator_url="http://127.0.0.1:80/?token=abc",
+    )
+    app = create_app(paths, jwt_secret="s", context=context)
+
+    async with loopback_client(app) as c:
+        body = (await c.get("/boot/api/state")).json()
+
+    assert body["state"] == "running"
+    assert body["finished"] is True
+    assert body["production"] is False
+    assert body["reasons"] == ["mic_unavailable"]
+    assert body["operator_url"] == "http://127.0.0.1:80/?token=abc"
+    assert body["percent"] == 100
+
+
+async def test_boot_stream_rejected_from_non_loopback(app):
+    async with loopback_client(app, host="203.0.113.5", port=51000) as c:
+        response = await c.get("/boot/api/stream")
+        assert response.status_code == 403
+
+
+def _request(headers=None, query=None):
+    return types.SimpleNamespace(headers=headers or {}, query_params=query or {})
+
+
+def test_resume_position_honours_matching_epoch_only():
+    epoch = bootlog.BOOT_LOG.epoch
+
+    assert _resume_position(_request({"last-event-id": f"{epoch}:41"})) == 41
+    assert _resume_position(_request({"last-event-id": "someotherepoch:41"})) == 0
+    assert _resume_position(_request({"last-event-id": "garbage"})) == 0
+    assert _resume_position(_request(query={"last": f"{epoch}:7"})) == 7
+    assert _resume_position(_request()) == 0
+
+
+async def _never_disconnected() -> bool:
+    return False
+
+
+async def test_boot_event_stream_replays_backlog_then_follows_live_events():
+    log = BootEventLog()
+    log.emit("boot", "one")
+    log.emit("boot", "two")
+
+    stream = boot_event_stream(log, 0, _never_disconnected, keepalive_s=5.0)
+
+    assert (await anext(stream)).startswith("retry:")
+    first, second = await anext(stream), await anext(stream)
+    assert f"id: {log.epoch}:1" in first and '"one"' in first
+    assert '"two"' in second
+
+    log.emit("git", "three")
+    assert '"three"' in await anext(stream)
+
+    await stream.aclose()
+    assert log._subscribers == []
+
+
+async def test_boot_event_stream_resumes_after_given_sequence():
+    log = BootEventLog()
+    log.emit("boot", "one")
+    log.emit("boot", "two")
+
+    stream = boot_event_stream(log, 1, _never_disconnected)
+    await anext(stream)
+
+    assert '"two"' in await anext(stream)
+    await stream.aclose()
+
+
+async def test_boot_event_stream_sends_keepalive_when_idle():
+    log = BootEventLog()
+
+    stream = boot_event_stream(log, 0, _never_disconnected, keepalive_s=0.05)
+    await anext(stream)
+
+    assert (await anext(stream)).startswith(": keepalive")
+    await stream.aclose()

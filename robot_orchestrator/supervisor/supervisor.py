@@ -1,6 +1,8 @@
 import asyncio
+import time
 from pathlib import Path
 
+from robot_orchestrator.bootlog import BOOT_LOG, forward_service_line
 from robot_orchestrator.config import ServiceConfig
 from robot_orchestrator.supervisor.backoff import BackoffState
 from robot_orchestrator.supervisor.devices import DeviceLeases
@@ -38,6 +40,7 @@ class Supervisor:
 
     def register(self, config: ServiceConfig, cwd: Path, env: dict[str, str]) -> ManagedService:
         sink = LogSink(self.log_dir / "services" / f"{config.name}.log")
+        sink.subscribe(lambda line, name=config.name: forward_service_line(name, line))
         self.log_sinks[config.name] = sink
         service = ManagedService(config, cwd, env, sink)
         self.services[config.name] = service
@@ -77,11 +80,16 @@ class Supervisor:
             self.devices.acquire(device, name)
         self._stop_requested.discard(name)
         self.backoffs[name].note_start()
+        BOOT_LOG.emit("supervisor", f"▶ запускаю {name}: {' '.join(service.config.cmd)}"[:260], "cmd")
+        started = time.monotonic()
         await service.start()
         self._lifecycle_tasks[name] = asyncio.create_task(self._lifecycle(name))
         result = await wait_until_ready(service.config.ready)
         if result.ready:
             service.state = ServiceState.READY
+            BOOT_LOG.emit("supervisor", f"✔ {name} готов за {time.monotonic() - started:.1f}s", "ok")
+        else:
+            BOOT_LOG.emit("supervisor", f"✖ {name} не прошёл проверку готовности", "error")
         return result.ready
 
     async def _lifecycle(self, name: str) -> None:

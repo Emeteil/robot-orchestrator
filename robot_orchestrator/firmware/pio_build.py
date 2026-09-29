@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from robot_orchestrator.bootlog import logged_run
+
 RunnerT = Callable[[list[str], dict[str, str], Path], subprocess.CompletedProcess]
 
 
@@ -20,7 +22,7 @@ class BuildResult:
 
 
 def _default_runner(argv: list[str], env: dict[str, str], cwd: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, env=env, cwd=cwd, capture_output=True, text=True)
+    return logged_run(argv, source="pio", env=env, cwd=cwd)
 
 
 class PioFirmwareBuilder:

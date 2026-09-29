@@ -1,10 +1,10 @@
 import json
-import subprocess
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from robot_orchestrator.bootlog import BOOT_LOG, logged_run
 from robot_orchestrator.config import RepoConfig
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.repos import git
@@ -180,6 +180,7 @@ class RepoManager:
     def _stage_and_commit(self, mirror: Path, target_sha: str, prior_state: dict) -> SyncResult:
         op_id = uuid.uuid4().hex
         staging = self.paths.repo_staging(self.config.name, op_id)
+        BOOT_LOG.emit(self.config.name, f"готовлю релиз {target_sha[:12]}: клонирование, подмодули, окружение", "info")
         self.journal.begin(
             "repo_swap",
             self.config.name,
@@ -297,7 +298,7 @@ class RepoManager:
                 cmd = cmd.replace("{venv}", str(venv_result.path)).replace(
                     "{venv_python}", str(venv_python(venv_result.path))
                 )
-            subprocess.run(cmd, shell=True, cwd=staging, check=True, capture_output=True, text=True)
+            logged_run(cmd, source=f"check:{self.config.name}", shell=True, cwd=staging, check=True)
 
     def _write_release_marker(self, staging: Path, sha: str, venv_result: VenvBuildResult | None) -> None:
         marker = {

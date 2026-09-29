@@ -1,5 +1,6 @@
 import time
 
+from robot_orchestrator.bootlog import BOOT_LOG
 from robot_orchestrator.config import MicrophoneConfig
 from robot_orchestrator.hal.base import ProbeResult
 
@@ -14,9 +15,12 @@ class RealMicProbe:
 
     def probe(self) -> ProbeResult:
         result = self._probe_once()
-        for _ in range(RETRY_ATTEMPTS - 1):
+        for attempt in range(2, RETRY_ATTEMPTS + 1):
             if result.ok:
                 return result
+            BOOT_LOG.emit(
+                "microphone", f"{result.detail} — попытка {attempt}/{RETRY_ATTEMPTS}", "warn"
+            )
             if result.detail == "no matching input device":
                 self._reinit_portaudio()
             time.sleep(RETRY_DELAY_S)
