@@ -109,9 +109,11 @@
     border-bottom: 1px solid var(--edge); align-items: center; justify-content: space-between;
   }
   .live {
-    position: absolute; right: .7rem; top: .4rem; z-index: 4; display: inline-flex; align-items: center; gap: .35rem;
-    font: .8rem var(--mono); color: var(--dimmer); letter-spacing: .06em; pointer-events: none;
+    display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap;
+    font: .8rem var(--mono); color: var(--dimmer); letter-spacing: .06em;
   }
+  .now-row { display: flex; align-items: center; padding-right: .8rem; flex: none; }
+  .now-row .now { flex: 1; min-width: 0; }
   .live i { width: .4rem; height: .4rem; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; }
   .live.off i { background: var(--err); animation: none; }
   .conn-lost { color: var(--err); }
@@ -207,13 +209,12 @@
     .brand .sub { display: inline; }
     .brand .logo { font-size: 1.45rem; }
     .progress { margin: 0 1.2rem; }
-    .rail, .now { display: none; }
+    .rail, .now-row { display: none; }
     .reasons { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0 1.2rem; }
     .reasons.visible { padding-top: .6rem; }
     main { gap: .8rem; padding: .8rem 1.2rem; }
     .steps-panel { display: flex; flex: 0 0 27%; min-width: 15rem; }
     .panel h2 { display: flex; }
-    .live { position: static; }
     .log { font-size: .82rem; padding: .7rem .95rem 1.1rem; }
     .log-fade { top: 2.35rem; height: 3rem; }
     .line { grid-template-columns: 5.7rem 8.6rem minmax(0, 1fr) auto; gap: .6rem; }
@@ -234,7 +235,10 @@
 <div id="progress" class="progress"><div id="fill" class="fill"></div></div>
 <div id="reasons" class="reasons"></div>
 <div id="rail" class="rail"></div>
-<div id="now" class="now"></div>
+<div class="now-row">
+  <div id="now" class="now"></div>
+  <span class="live"><i></i><span class="live-text">live</span> · <span class="count">0</span></span>
+</div>
 
 <main>
   <section class="panel steps-panel">
@@ -243,8 +247,7 @@
   </section>
 
   <section class="panel log-panel">
-    <h2><span>ПОТОК СОБЫТИЙ</span></h2>
-    <span id="live" class="live"><i></i><span id="live-text">live</span> · <span id="count">0</span></span>
+    <h2><span>ПОТОК СОБЫТИЙ</span><span class="live"><i></i><span class="live-text">live</span> · <span class="count">0</span></span></h2>
     <div class="log-fade"></div>
     <div id="log" class="log"><div id="cursor" class="cursor-row"><span>▍</span></div></div>
     <button id="jump" class="jump" type="button">↓ Новые строки</button>
@@ -280,7 +283,9 @@
   const STATUS_ICON = { pending: "○", ok: "✔", warn: "⚠", failed: "✖", skipped: "–" };
 
   const els = {
-    log: $("log"), cursor: $("cursor"), jump: $("jump"), count: $("count"), live: $("live"), liveText: $("live-text"),
+    log: $("log"), cursor: $("cursor"), jump: $("jump"),
+    lives: document.querySelectorAll(".live"), liveTexts: document.querySelectorAll(".live-text"),
+    counts: document.querySelectorAll(".count"),
     steps: $("steps"), rail: $("rail"), now: $("now"), fill: $("fill"), progress: $("progress"), pct: $("pct"),
     badge: $("badge"), badgeText: $("badge-text"), clock: $("clock"), reasons: $("reasons"), openBtn: $("open-btn"),
     qrCard: $("qr-card"), qrImg: $("qr-img"), footLeft: $("foot-left"), footRight: $("foot-right"),
@@ -339,7 +344,7 @@
 
   function appendLine(ev) {
     lineCount += 1;
-    els.count.textContent = String(lineCount);
+    setCount(lineCount);
     const key = ev.source + "|" + ev.level + "|" + String(ev.text).replace(/\d+/g, "#");
     const collapsible = ev.level === "info" || ev.level === "dim" || ev.level === "warn";
     if (collapsible && last && last.key === key) {
@@ -378,13 +383,17 @@
     queue.length = 0;
     lineCount = 0;
     last = null;
-    els.count.textContent = "0";
+    setCount(0);
     while (els.log.firstChild !== els.cursor) els.log.removeChild(els.log.firstChild);
   }
 
+  function setCount(n) {
+    for (const el of els.counts) el.textContent = String(n);
+  }
+
   function setLive(ok) {
-    els.live.classList.toggle("off", !ok);
-    els.liveText.textContent = ok ? "live" : "нет связи";
+    for (const el of els.lives) el.classList.toggle("off", !ok);
+    for (const el of els.liveTexts) el.textContent = ok ? "live" : "нет связи";
     els.footRight.textContent = ok ? "" : "ожидание оркестратора…";
     els.footRight.className = ok ? "" : "conn-lost";
   }
