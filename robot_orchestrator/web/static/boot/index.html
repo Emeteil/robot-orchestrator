@@ -168,6 +168,7 @@
     background: linear-gradient(180deg, var(--panel), rgba(10, 16, 29, 0)); }
   .line { display: grid; grid-template-columns: 4.9rem 6.6rem minmax(0, 1fr) auto; gap: .5rem; padding: .03rem 0;
     animation: lineIn .22s ease-out; }
+  .line.instant { animation: none; }
   .line .t { color: var(--dimmer); }
   .line .t .ms { display: none; }
   .line .src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; text-align: right; opacity: .9; }
@@ -342,7 +343,8 @@
     }
   }
 
-  function appendLine(ev) {
+  // history replayed by the server on (re)connect is drawn at once, only live lines animate
+  function appendLine(ev, instant) {
     lineCount += 1;
     setCount(lineCount);
     const key = ev.source + "|" + ev.level + "|" + String(ev.text).replace(/\d+/g, "#");
@@ -356,7 +358,7 @@
       return;
     }
     const el = document.createElement("div");
-    el.className = "line lv-" + ev.level + " fresh";
+    el.className = "line lv-" + ev.level + (instant ? " instant" : " fresh");
     const t = document.createElement("span"); t.className = "t"; fillTime(t, ev.ts);
     const src = document.createElement("span"); src.className = "src"; src.textContent = shortSource(ev.source);
     src.title = ev.source;
@@ -365,7 +367,7 @@
     const cnt = document.createElement("span"); cnt.className = "cnt";
     el.append(t, src, txt, cnt);
     els.log.insertBefore(el, els.cursor);
-    setTimeout(() => el.classList.remove("fresh"), 700);
+    if (!instant) setTimeout(() => el.classList.remove("fresh"), 700);
     last = { key, el, t, txt, cnt, count: 1 };
     while (els.log.children.length > MAX_LINES + 1) els.log.removeChild(els.log.firstChild);
   }
@@ -381,6 +383,7 @@
 
   function resetLog() {
     queue.length = 0;
+    history.length = 0;
     lineCount = 0;
     last = null;
     setCount(0);
@@ -398,10 +401,22 @@
     els.footRight.className = ok ? "" : "conn-lost";
   }
 
+  let replaying = true;
+  const history = [];
+
+  function flushHistory() {
+    replaying = false;
+    for (const ev of history) appendLine(ev, true);
+    history.length = 0;
+    pinned = true;
+    stick();
+  }
+
   function connect() {
     const es = new EventSource("/boot/api/stream");
-    es.onopen = () => setLive(true);
+    es.onopen = () => { setLive(true); replaying = true; };
     es.onerror = () => setLive(false);
+    es.addEventListener("live", flushHistory);
     es.onmessage = (message) => {
       let ev;
       try { ev = JSON.parse(message.data); } catch (e) { return; }
@@ -410,7 +425,7 @@
         if (streamEpoch !== null) { resetLog(); resetSteps(); }
         streamEpoch = epoch;
       }
-      queue.push(ev);
+      (replaying ? history : queue).push(ev);
     };
   }
 
@@ -583,10 +598,20 @@
     els.now.appendChild(msg);
   }
 
+  let firstRender = true;
+
   function render(state) {
     lastState = state;
     renderSteps(state.steps || []);
     const percent = state.percent || 0;
+    if (firstRender) {
+      // do not sweep the bar up from 0% every time the page is opened
+      firstRender = false;
+      els.fill.style.transition = "none";
+      els.fill.style.width = percent + "%";
+      void els.fill.offsetWidth;
+      els.fill.style.transition = "";
+    }
     els.fill.style.width = percent + "%";
     els.pct.textContent = percent + "%";
     elapsedBase = { value: state.elapsed || 0, at: performance.now(), running: !state.finished };

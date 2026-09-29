@@ -75,6 +75,8 @@ async def boot_event_stream(
         for event in log.tail(after_seq, backlog_limit):
             last = event["seq"]
             yield _format_event(event, log.epoch)
+        # tells the page that everything before this point is history and everything after is live
+        yield "event: live\ndata: {}\n\n"
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=keepalive_s)

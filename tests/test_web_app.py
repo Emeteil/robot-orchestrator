@@ -213,6 +213,7 @@ async def test_boot_event_stream_replays_backlog_then_follows_live_events():
     first, second = await anext(stream), await anext(stream)
     assert f"id: {log.epoch}:1" in first and '"one"' in first
     assert '"two"' in second
+    assert (await anext(stream)).startswith("event: live")
 
     log.emit("git", "three")
     assert '"three"' in await anext(stream)
@@ -230,6 +231,7 @@ async def test_boot_event_stream_resumes_after_given_sequence():
     await anext(stream)
 
     assert '"two"' in await anext(stream)
+    assert (await anext(stream)).startswith("event: live")
     await stream.aclose()
 
 
@@ -238,6 +240,17 @@ async def test_boot_event_stream_sends_keepalive_when_idle():
 
     stream = boot_event_stream(log, 0, _never_disconnected, keepalive_s=0.05)
     await anext(stream)
+    assert (await anext(stream)).startswith("event: live")
 
     assert (await anext(stream)).startswith(": keepalive")
+    await stream.aclose()
+
+
+async def test_boot_event_stream_marks_the_end_of_history_even_when_there_is_none():
+    log = BootEventLog()
+
+    stream = boot_event_stream(log, 0, _never_disconnected)
+    await anext(stream)
+
+    assert (await anext(stream)).startswith("event: live")
     await stream.aclose()
