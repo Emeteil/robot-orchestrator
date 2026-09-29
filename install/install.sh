@@ -131,6 +131,19 @@ PYEOF
 fi
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "/home/${SERVICE_USER}/.config"
 
+echo "==> disabling screen blanking, power management and sleep"
+mkdir -p /etc/X11/xorg.conf.d
+install -m 0644 "${INSTALL_DIR}/install/xorg/10-robot-noblank.conf" /etc/X11/xorg.conf.d/10-robot-noblank.conf
+mkdir -p /etc/systemd/logind.conf.d
+install -m 0644 "${INSTALL_DIR}/install/systemd/logind-robot-no-idle.conf" /etc/systemd/logind.conf.d/robot-no-idle.conf
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+mkdir -p "/home/${SERVICE_USER}/.config/autostart"
+for entry in xfce4-power-manager xscreensaver xfce4-screensaver light-locker gnome-screensaver; do
+    printf '[Desktop Entry]\nType=Application\nName=%s (disabled)\nHidden=true\n' "${entry}" \
+        > "/home/${SERVICE_USER}/.config/autostart/${entry}.desktop"
+done
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "/home/${SERVICE_USER}/.config/autostart"
+
 echo "==> installing polkit rule for Wi-Fi"
 if [ -d /etc/polkit-1/rules.d ]; then
     install -m 0644 "${INSTALL_DIR}/install/polkit/50-robot-nm.rules" /etc/polkit-1/rules.d/50-robot-nm.rules

@@ -1,6 +1,14 @@
 #!/bin/sh
-xset s off
-xset -dpms
-xset s noblank
+# The robot's screen must never blank or sleep. Session daemons (xfce4-power-manager, xscreensaver, ...)
+# re-enable DPMS/blanking on their own after we start, so re-assert the settings for as long as X lives.
+keep_awake() {
+    while xset q >/dev/null 2>&1; do
+        xset s off
+        xset -dpms
+        xset s noblank
+        sleep 20
+    done
+}
+keep_awake &
 unclutter -idle 0.1 -root &
 exec openbox-session
