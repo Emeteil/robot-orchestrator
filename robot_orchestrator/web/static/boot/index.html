@@ -299,7 +299,7 @@
     for (const ch of base) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
   }
-  const SOURCE_ALIASES = { "voice-interface": "voice", supervisor: "super", "com-link-RT": "com-link", platformio: "platformio" };
+  const SOURCE_ALIASES = { "voice-interface": "voice", supervisor: "super", "com-link-RT": "com-link", microphone: "mic" };
   function shortSource(source) { return SOURCE_ALIASES[source] || source; }
   function pad(n, w = 2) { return String(n).padStart(w, "0"); }
   function fillTime(el, ts) {
