@@ -193,6 +193,91 @@
   .jump.visible { display: block; }
   footer { display: none; }
 
+
+  /* ---------------- settings modal (PIN-protected) ---------------- */
+  .gear-btn {
+    display: none; width: 2.7rem; height: 2.7rem; border-radius: .6rem; border: 1px solid var(--edge); background: var(--panel2);
+    color: var(--fg); font-size: 1.5rem; line-height: 1; cursor: pointer; padding: 0; place-items: center;
+  }
+  .gear-btn.visible { display: inline-grid; }
+  .gear-btn:active { transform: scale(.94); background: var(--edge); }
+  .modal { position: fixed; inset: 0; z-index: 100; display: none; flex-direction: column; background: var(--bg); }
+  .modal.open { display: flex; }
+  .m-head { display: flex; align-items: center; gap: .7rem; padding: .5rem .8rem; border-bottom: 1px solid var(--edge); flex: none; }
+  .m-head h1 { margin: 0; font: 800 1.1rem var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); flex: 1; }
+  .btn {
+    min-height: 2.5rem; padding: 0 .9rem; border-radius: .55rem; border: 1px solid var(--edge); background: var(--panel2); color: var(--fg);
+    font: 600 .95rem var(--sans); cursor: pointer; white-space: nowrap;
+  }
+  .btn:active { transform: scale(.96); }
+  .btn:disabled { opacity: .45; }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), #7cf0c6); color: #06121a; border: 0; }
+  .btn.danger { color: var(--err); border-color: rgba(255, 93, 115, .45); }
+  .btn.small { min-height: 2.1rem; padding: 0 .7rem; font-size: .85rem; }
+  .m-tabs { display: flex; gap: .35rem; padding: .4rem .8rem; flex: none; overflow-x: auto; }
+  .m-tab { flex: 1; min-width: 5.5rem; }
+  .m-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(74, 216, 255, .08); }
+  .m-body { flex: 1; min-height: 0; overflow-y: auto; padding: .4rem .8rem .8rem; -webkit-user-select: text; user-select: text; }
+  .card { background: var(--panel); border: 1px solid var(--edge); border-radius: .7rem; padding: .6rem .8rem; margin-bottom: .6rem; }
+  .card h3 { margin: 0 0 .45rem; font: 700 .8rem var(--mono); letter-spacing: .18em; color: var(--dim); text-transform: uppercase; }
+  .kv { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: .25rem .6rem; font: .95rem var(--mono); }
+  .kv span:nth-child(odd) { color: var(--dim); }
+  .row { display: flex; align-items: center; gap: .6rem; padding: .3rem 0; border-top: 1px solid var(--edge); min-height: 2.8rem; }
+  .card h3 + .row { border-top: 0; }
+  .row .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: .95rem var(--mono); flex: 1; }
+  .row small { color: var(--dim); font: .8rem var(--mono); margin-left: .4rem; }
+  .tag { font: .75rem var(--mono); border: 1px solid var(--edge); border-radius: 999px; padding: .1rem .5rem; color: var(--dim); }
+  .tag.ok { color: var(--ok); border-color: rgba(74, 222, 128, .4); }
+  .tag.warn { color: var(--warn); border-color: rgba(251, 191, 36, .4); }
+  .tag.err { color: var(--err); border-color: rgba(255, 93, 115, .4); }
+  .toast { margin: .3rem 0; font: .9rem var(--mono); color: var(--accent); min-height: 1.2rem; }
+  .toast.err { color: var(--err); }
+  .switch { position: relative; width: 3.4rem; height: 1.9rem; border-radius: 999px; background: #1a2440; border: 1px solid var(--edge); cursor: pointer; flex: none; padding: 0; }
+  .switch::after { content: ""; position: absolute; top: .18rem; left: .2rem; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--dim); transition: transform .2s, background .2s; }
+  .switch.on { background: rgba(74, 222, 128, .25); border-color: rgba(74, 222, 128, .5); }
+  .switch.on::after { transform: translateX(1.5rem); background: var(--ok); }
+  .switch:disabled { opacity: .4; }
+  input[type=range].vol { width: 100%; height: 2.4rem; accent-color: var(--accent); }
+  .vol-row { display: flex; align-items: center; gap: .8rem; }
+  .vol-num { font: 700 1.6rem var(--mono); min-width: 4.2rem; text-align: right; }
+  .field {
+    display: block; width: 100%; min-height: 2.6rem; padding: .4rem .7rem; margin-bottom: .45rem; border-radius: .55rem; border: 1px solid var(--edge);
+    background: var(--bg); color: var(--fg); font: 1rem var(--mono); text-align: left; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .field.focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .field.empty { color: var(--dimmer); }
+  .logbox { font: .8rem/1.35 var(--mono); color: #b8c6e0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .logbox .e { color: var(--err); } .logbox .w { color: var(--warn); }
+
+  .pin { margin: auto; display: flex; flex-direction: column; align-items: center; gap: .55rem; }
+  .pin h2 { margin: 0; font: 700 1.15rem var(--sans); }
+  .pin .hint { color: var(--dim); font: .9rem var(--mono); min-height: 1.2rem; text-align: center; }
+  .pin .hint.err { color: var(--err); }
+  .dots { display: flex; gap: 1rem; margin: .1rem 0; }
+  .dots i { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 2px solid var(--dim); }
+  .dots i.on { background: var(--accent); border-color: var(--accent); }
+  .dots.shake { animation: shake .35s; }
+  .keypad { display: grid; grid-template-columns: repeat(3, 4.6rem); gap: .45rem; }
+  .keypad button {
+    height: 3.2rem; border-radius: .7rem; border: 1px solid var(--edge); background: var(--panel2); color: var(--fg);
+    font: 600 1.5rem var(--mono); cursor: pointer; padding: 0;
+  }
+  .keypad button:active { background: var(--edge); transform: scale(.95); }
+  .keypad .fn { font-size: 1.1rem; color: var(--dim); }
+  @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+
+  .osk { flex: none; padding: .35rem .5rem .5rem; border-top: 1px solid var(--edge); background: #070c17; display: none; }
+  .osk.open { display: block; }
+  .osk-row { display: flex; gap: .3rem; margin-bottom: .3rem; justify-content: center; }
+  .osk-row button {
+    flex: 1; max-width: 4.3rem; height: 2.2rem; border-radius: .5rem; border: 1px solid var(--edge); background: var(--panel2);
+    color: var(--fg); font: 600 1.1rem var(--mono); cursor: pointer; padding: 0;
+  }
+  .osk-row button:active { background: var(--edge); }
+  .osk-row .wide { max-width: 6rem; flex: 1.5; font-size: .9rem; }
+  .osk-row .space { max-width: none; flex: 5; }
+  .osk-row .done { background: linear-gradient(135deg, var(--accent), #7cf0c6); color: #06121a; border: 0; }
+
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
@@ -231,6 +316,7 @@
   <div class="grow"></div>
   <span id="badge" class="badge booting"><span class="dot"></span><span id="badge-text">ЗАГРУЗКА</span></span>
   <span id="clock" class="clock">00:00</span>
+  <button id="gear-btn" class="gear-btn" type="button" title="Настройки" aria-label="Настройки">⚙</button>
   <a id="open-btn" class="open-btn" href="#">Открыть web-core <span aria-hidden="true">→</span></a>
 </header>
 <div id="progress" class="progress"><div id="fill" class="fill"></div></div>
@@ -256,6 +342,28 @@
 </main>
 
 <footer><span id="foot-left">оркестратор</span><span class="grow"></span><span id="foot-right"></span></footer>
+
+
+<div id="settings" class="modal" role="dialog" aria-modal="true" aria-label="Настройки">
+  <div class="m-head">
+    <h1>Настройки</h1>
+    <button id="m-lock" class="btn small" type="button" style="display:none">🔒 Заблокировать</button>
+    <button id="m-close" class="btn small" type="button">✕ Закрыть</button>
+  </div>
+  <div id="m-pin" class="m-body" style="display:flex">
+    <div class="pin">
+      <h2 id="pin-title">Введите PIN</h2>
+      <div id="pin-dots" class="dots"><i></i><i></i><i></i><i></i></div>
+      <div id="pin-hint" class="hint"></div>
+      <div id="keypad" class="keypad"></div>
+    </div>
+  </div>
+  <div id="m-main" style="display:none; flex-direction:column; flex:1; min-height:0;">
+    <div id="m-tabs" class="m-tabs"></div>
+    <div id="m-content" class="m-body"></div>
+  </div>
+  <div id="osk" class="osk"></div>
+</div>
 
 <div id="qr-card" class="qr-card">
   <div class="qr-frame"><img id="qr-img" alt=""></div>
@@ -320,6 +428,8 @@
     if (r.startsWith("repo_update_failed:")) return "не обновился " + r.split(":")[1];
     return REASONS[r] || r;
   }
+
+  window.reasonLabel = reasonLabel;
 
   /* ---------------- log waterfall ---------------- */
   const queue = [];
@@ -602,6 +712,7 @@
 
   function render(state) {
     lastState = state;
+    window.dispatchEvent(new CustomEvent("boot-state", { detail: state }));
     renderSteps(state.steps || []);
     const percent = state.percent || 0;
     if (firstRender) {
@@ -671,6 +782,563 @@
 
   connect();
   pollState();
+})();
+</script>
+<script>
+"use strict";
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const gear = $("gear-btn"), modal = $("settings"), pinBox = $("m-pin"), mainBox = $("m-main");
+  const tabsEl = $("m-tabs"), content = $("m-content"), oskEl = $("osk");
+  const PIN_KEY = "supervisor.pin";
+  const IDLE_MS = 120000;
+
+  function h(tag, props, ...children) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (k === "class") el.className = v;
+      else if (k === "text") el.textContent = v;
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v);
+    }
+    for (const c of children.flat()) if (c != null) el.append(c);
+    return el;
+  }
+
+  /* ---------------- PIN storage (browser-local, on purpose) ---------------- */
+  function storeGet() { try { return JSON.parse(localStorage.getItem(PIN_KEY) || "null"); } catch (e) { return null; } }
+  function storeSet(v) { try { localStorage.setItem(PIN_KEY, JSON.stringify(v)); return true; } catch (e) { return false; } }
+  async function hashPin(pin, salt) {
+    const data = new TextEncoder().encode(salt + ":" + pin);
+    if (window.crypto && crypto.subtle) {
+      const buf = await crypto.subtle.digest("SHA-256", data);
+      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+    let x = 5381;
+    for (const b of data) x = ((x * 33) ^ b) >>> 0;
+    return "d" + x.toString(16);
+  }
+
+  /* ---------------- session / api ---------------- */
+  let token = null, tokenAt = 0;
+  async function ensureToken(force) {
+    if (!force && token && Date.now() - tokenAt < 8 * 60 * 1000) return token;
+    const r = await fetch("/boot/api/session", { method: "POST" });
+    if (!r.ok) throw new Error("нет доступа к настройкам (" + r.status + ")");
+    token = (await r.json()).access_token;
+    tokenAt = Date.now();
+    return token;
+  }
+  async function api(path, method, body) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const t = await ensureToken(attempt > 0);
+      const headers = { Authorization: "Bearer " + t };
+      if (body !== undefined) headers["Content-Type"] = "application/json";
+      const r = await fetch(path, { method: method || "GET", headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      if (r.status === 401 && attempt === 0) continue;
+      if (!r.ok) {
+        let detail = "";
+        try { detail = (await r.json()).detail; } catch (e) { /* not json */ }
+        throw new Error(typeof detail === "string" && detail ? detail : "HTTP " + r.status);
+      }
+      return r.json();
+    }
+  }
+
+  /* ---------------- open / close / idle lock ---------------- */
+  let unlocked = false, idleTimer = null, ready = false, tabTimer = null;
+
+  window.addEventListener("boot-state", (e) => {
+    ready = e.detail.state === "running" && !!e.detail.finished;
+    gear.classList.toggle("visible", ready);
+  });
+
+  function bumpIdle() {
+    clearTimeout(idleTimer);
+    if (modal.classList.contains("open")) idleTimer = setTimeout(closeModal, IDLE_MS);
+  }
+  modal.addEventListener("pointerdown", bumpIdle);
+
+  function openModal() {
+    modal.classList.add("open");
+    bumpIdle();
+    if (unlocked) showMain(); else startPinEntry();
+  }
+  function closeModal() {
+    modal.classList.remove("open");
+    unlocked = false;
+    clearTimeout(idleTimer);
+    clearInterval(tabTimer);
+    osk.hide();
+    content.innerHTML = "";
+    token = null;
+  }
+  gear.addEventListener("click", openModal);
+  $("m-close").addEventListener("click", closeModal);
+  $("m-lock").addEventListener("click", closeModal);
+
+  /* ---------------- PIN pad ---------------- */
+  let pinMode = "enter", pinBuf = "", pinFirst = "", fails = 0, lockedUntil = 0, lockTimer = null, changing = false;
+  const dots = $("pin-dots").children, hint = $("pin-hint"), title = $("pin-title");
+
+  function setHint(text, err) { hint.textContent = text || ""; hint.classList.toggle("err", !!err); }
+  function renderDots() { for (let i = 0; i < dots.length; i++) dots[i].classList.toggle("on", i < pinBuf.length); }
+  function shake() {
+    const box = $("pin-dots");
+    box.classList.remove("shake"); void box.offsetWidth; box.classList.add("shake");
+  }
+
+  function buildKeypad() {
+    const pad = $("keypad");
+    pad.innerHTML = "";
+    const key = (label, fn, cls) => h("button", { type: "button", class: cls || "", text: label, onclick: fn });
+    for (const d of "123456789") pad.append(key(d, () => digit(d)));
+    pad.append(changing ? key("Отмена", () => { changing = false; showMain(); }, "fn") : h("span"));
+    pad.append(key("0", () => digit("0")));
+    pad.append(key("⌫", backspace, "fn"));
+  }
+
+  function startPinEntry() {
+    changing = false;
+    pinBox.style.display = "flex"; mainBox.style.display = "none";
+    $("m-lock").style.display = "none";
+    pinBuf = ""; pinFirst = "";
+    pinMode = storeGet() ? "enter" : "setup1";
+    paintPinMode();
+  }
+
+  function startPinChange() {
+    changing = true;
+    pinBox.style.display = "flex"; mainBox.style.display = "none";
+    pinBuf = ""; pinFirst = ""; pinMode = "setup1";
+    paintPinMode();
+  }
+
+  function paintPinMode() {
+    title.textContent = pinMode === "enter" ? "Введите PIN" : pinMode === "setup1" ? "Задайте новый PIN" : "Повторите PIN";
+    setHint(pinMode === "setup1" && !changing ? "PIN ещё не задан — придумайте 4 цифры" : "");
+    buildKeypad();
+    renderDots();
+    refreshLockout();
+  }
+
+  function refreshLockout() {
+    clearInterval(lockTimer);
+    const tick = () => {
+      const left = Math.ceil((lockedUntil - Date.now()) / 1000);
+      const pad = $("keypad");
+      for (const b of pad.querySelectorAll("button")) b.disabled = left > 0;
+      if (left > 0) setHint("Слишком много попыток. Подождите " + left + " с", true);
+      else { clearInterval(lockTimer); if (hint.classList.contains("err") && pinMode === "enter") setHint(""); }
+    };
+    if (lockedUntil > Date.now()) { tick(); lockTimer = setInterval(tick, 500); }
+  }
+
+  function digit(d) {
+    if (lockedUntil > Date.now() || pinBuf.length >= 4) return;
+    pinBuf += d;
+    renderDots();
+    if (pinBuf.length === 4) setTimeout(submitPin, 90);
+  }
+  function backspace() { pinBuf = pinBuf.slice(0, -1); renderDots(); }
+
+  async function submitPin() {
+    const entered = pinBuf;
+    pinBuf = ""; renderDots();
+    if (pinMode === "enter") {
+      const saved = storeGet();
+      if (saved && (await hashPin(entered, saved.salt)) === saved.hash) { fails = 0; unlocked = true; showMain(); return; }
+      fails += 1; shake();
+      if (fails >= 5) { fails = 0; lockedUntil = Date.now() + 30000; refreshLockout(); }
+      else setHint("Неверный PIN (" + fails + "/5)", true);
+    } else if (pinMode === "setup1") {
+      pinFirst = entered; pinMode = "setup2"; paintPinMode();
+    } else {
+      if (entered !== pinFirst) { shake(); pinMode = "setup1"; paintPinMode(); setHint("PIN не совпал — введите заново", true); return; }
+      const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const ok = storeSet({ salt, hash: await hashPin(entered, salt) });
+      if (!ok) { setHint("Не удалось сохранить PIN в браузере", true); return; }
+      unlocked = true; changing = false; showMain();
+    }
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (!modal.classList.contains("open")) return;
+    bumpIdle();
+    if (pinBox.style.display !== "none") {
+      if (/^[0-9]$/.test(e.key)) digit(e.key);
+      else if (e.key === "Backspace") backspace();
+      else return;
+      e.preventDefault();
+      return;
+    }
+    if (osk.target) {
+      if (e.key === "Enter") osk.hide();
+      else if (e.key === "Backspace") osk.press("back");
+      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) osk.insert(e.key);
+      else return;
+      e.preventDefault();
+    }
+  });
+
+  /* ---------------- on-screen keyboard ---------------- */
+  const LAYERS = {
+    lower: ["1234567890", "qwertyuiop", "asdfghjkl", "^zxcvbnm<", "?,_ .!"],
+    upper: ["1234567890", "QWERTYUIOP", "ASDFGHJKL", "^ZXCVBNM<", "?,_ .!"],
+    sym: ["1234567890", "-_=+@#$%&*", "()/:;!?\"'<", "?,_ .!"],
+  };
+  const osk = {
+    target: null, layer: "lower",
+    attach(field) {
+      if (this.target) this.target.el.classList.remove("focus");
+      this.target = field;
+      field.el.classList.add("focus");
+      oskEl.classList.add("open");
+      this.layer = "lower";
+      this.draw();
+      field.el.scrollIntoView({ block: "center" });
+    },
+    hide() {
+      if (this.target) this.target.el.classList.remove("focus");
+      this.target = null;
+      oskEl.classList.remove("open");
+    },
+    insert(ch) { if (this.target) { this.target.value += ch; this.target.render(); } },
+    press(code) {
+      if (!this.target) return;
+      if (code === "back") { this.target.value = this.target.value.slice(0, -1); this.target.render(); }
+    },
+    draw() {
+      oskEl.innerHTML = "";
+      const rows = LAYERS[this.layer];
+      const mk = (label, cls, fn) => h("button", { type: "button", class: cls || "", text: label, onclick: fn });
+      for (let r = 0; r < rows.length - 1; r++) {
+        const row = h("div", { class: "osk-row" });
+        for (const ch of rows[r]) {
+          if (ch === "^") row.append(mk(this.layer === "sym" ? "abc" : "⇧", "wide", () => { this.layer = this.layer === "lower" ? "upper" : "lower"; this.draw(); }));
+          else if (ch === "<") row.append(mk("⌫", "wide", () => this.press("back")));
+          else row.append(mk(ch, "", () => { this.insert(ch); if (this.layer === "upper") { this.layer = "lower"; this.draw(); } }));
+        }
+        oskEl.append(row);
+      }
+      const last = h("div", { class: "osk-row" });
+      last.append(mk(this.layer === "sym" ? "abc" : "123", "wide", () => { this.layer = this.layer === "sym" ? "lower" : "sym"; this.draw(); }));
+      last.append(mk(",", "", () => this.insert(",")));
+      last.append(mk("пробел", "space", () => this.insert(" ")));
+      last.append(mk(".", "", () => this.insert(".")));
+      last.append(mk("Готово", "wide done", () => this.hide()));
+      oskEl.append(last);
+    },
+  };
+
+  function makeField(placeholder, secret) {
+    const field = { value: "", secret: !!secret, reveal: false, el: h("div", { class: "field empty", role: "textbox", tabindex: "0" }) };
+    field.render = () => {
+      const shown = field.secret && !field.reveal ? "•".repeat(field.value.length) : field.value;
+      field.el.textContent = shown || placeholder;
+      field.el.classList.toggle("empty", !field.value);
+    };
+    field.el.addEventListener("click", () => osk.attach(field));
+    field.render();
+    return field;
+  }
+
+  /* ---------------- ui helpers ---------------- */
+  let toastEl = null;
+  function say(text, err) { if (toastEl) { toastEl.textContent = text || ""; toastEl.classList.toggle("err", !!err); } }
+  function card(titleText, ...children) { return h("div", { class: "card" }, h("h3", { text: titleText }), children); }
+  function tag(text, kind) { return h("span", { class: "tag " + (kind || ""), text }); }
+  function button(label, cls, action) {
+    const b = h("button", { type: "button", class: "btn small " + (cls || ""), text: label });
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await action(b); } catch (e) { say(e.message, true); }
+      b.disabled = false;
+    });
+    return b;
+  }
+  // a destructive action needs a second tap within three seconds
+  function confirmButton(label, cls, action) {
+    let armed = null;
+    const b = h("button", { type: "button", class: "btn small " + (cls || ""), text: label });
+    b.addEventListener("click", async () => {
+      if (!armed) {
+        b.textContent = "Нажмите ещё раз";
+        armed = setTimeout(() => { armed = null; b.textContent = label; }, 3000);
+        return;
+      }
+      clearTimeout(armed); armed = null; b.textContent = label; b.disabled = true;
+      try { await action(); } catch (e) { say(e.message, true); }
+      b.disabled = false;
+    });
+    return b;
+  }
+  function toggle(on, onChange) {
+    const sw = h("button", { type: "button", class: "switch" + (on ? " on" : ""), role: "switch" });
+    sw.addEventListener("click", async () => {
+      const next = !sw.classList.contains("on");
+      sw.disabled = true;
+      try { const actual = await onChange(next); sw.classList.toggle("on", actual === undefined ? next : !!actual); }
+      catch (e) { say(e.message, true); }
+      sw.disabled = false;
+    });
+    return sw;
+  }
+  const shortSha = (sha) => (sha ? String(sha).slice(0, 7) : "—");
+  const stateKind = (s) => (s === "ready" ? "ok" : s === "failed" ? "err" : s === "stopped" || s === "skipped" ? "" : "warn");
+
+  /* ---------------- tabs ---------------- */
+  async function tabSystem(box) {
+    const [state, services, secrets] = await Promise.all([
+      api("/api/state"), api("/api/services"), api("/api/secrets").catch(() => null),
+    ]);
+    const label = window.reasonLabel || ((r) => r);
+    const mode = card("Режим",
+      h("div", { class: "row" }, tag(state.production ? "PROD" : "NON-PROD", state.production ? "ok" : "warn"),
+        h("span", { class: "grow", text: (state.reasons || []).map(label).join(", ") || "все условия выполнены" })));
+    const list = card("Сервисы");
+    for (const s of services) {
+      list.append(h("div", { class: "row" },
+        h("span", { class: "grow", text: s.name }), tag(s.state, stateKind(s.state)),
+        button("↻", "", async () => { say("Перезапуск " + s.name + "…"); await api("/api/services/" + s.name + "/restart", "POST"); say(s.name + " перезапущен"); await refreshTab(); }),
+        s.state === "stopped" || s.state === "failed" || s.state === "skipped"
+          ? button("▶", "", async () => { await api("/api/services/" + s.name + "/start", "POST"); await refreshTab(); })
+          : button("■", "danger", async () => { await api("/api/services/" + s.name + "/stop", "POST"); await refreshTab(); })));
+    }
+    const sec = card("Секреты");
+    if (secrets) {
+      for (const item of [...secrets.required, ...secrets.optional]) {
+        sec.append(h("div", { class: "row" }, h("span", { class: "grow", text: item.key }), tag(item.present ? "есть" : "нет", item.present ? "ok" : "warn")));
+      }
+      sec.append(h("div", { class: "row" }, h("span", { class: "grow", text: "Считать QR-коды камерой" }),
+        button("Сканировать", "", async () => { say("Покажите камере лист с QR-кодами…"); const r = await api("/api/secrets/rescan", "POST"); say(r.scanned ? "Секреты обновлены" : "QR не получен"); })));
+    }
+    const actions = card("Управление",
+      h("div", { class: "row" }, h("span", { class: "grow", text: "PIN-код настроек" }), button("Сменить PIN", "", async () => startPinChange())),
+      h("div", { class: "row" }, h("span", { class: "grow", text: "Перезапустить оркестратор" }),
+        confirmButton("Перезапуск", "danger", async () => { await api("/api/system/restart", "POST"); say("Оркестратор перезапускается…"); })));
+    box.append(mode, list, sec, actions);
+  }
+
+  const bars = (p) => (p >= 75 ? "▂▄▆█" : p >= 50 ? "▂▄▆" : p >= 25 ? "▂▄" : "▂");
+
+  async function tabNetwork(box) {
+    const info = await api("/api/network");
+    const kv = h("div", { class: "kv" });
+    const add = (k, v) => kv.append(h("span", { text: k }), h("span", { text: v || "—" }));
+    add("IP-адрес", info.ip);
+    add("Интерфейс", info.interface ? info.interface + (info.kind === "wifi" ? " (Wi-Fi)" : info.kind === "ethernet" ? " (кабель)" : "") : null);
+    if (info.kind === "wifi") add("Сеть", info.ssid);
+    add("Шлюз", info.gateway);
+    const others = (info.addresses || []).filter((a) => a.interface !== info.interface);
+    for (const a of others) add(a.interface, a.ip);
+    box.append(card("Сеть и доступ в интернет", h("div", { class: "row" }, tag(info.online ? "маршрут в WAN есть" : "нет маршрута в WAN", info.online ? "ok" : "err")), kv));
+
+    const wifiCard = card("Wi-Fi");
+    const formHost = h("div");
+    box.append(wifiCard);
+    const list = h("div");
+
+    function showForm(ssid, hidden) {
+      formHost.innerHTML = "";
+      const ssidField = makeField("Имя сети (SSID)", false);
+      ssidField.value = ssid || ""; ssidField.render();
+      const pwd = makeField("Пароль", true);
+      const eye = button("👁", "", async () => { pwd.reveal = !pwd.reveal; pwd.render(); });
+      formHost.append(h("div", { class: "card" },
+        h("h3", { text: ssid && !hidden ? "Подключение к " + ssid : "Добавить сеть" }),
+        ssidField.el, h("div", { class: "row" }, h("div", { style: "flex:1;min-width:0" }, pwd.el), eye),
+        h("div", { class: "row" },
+          button("Подключиться", "primary", async () => {
+            if (!ssidField.value) { say("Укажите имя сети", true); return; }
+            osk.hide(); say("Подключаюсь к " + ssidField.value + "…");
+            const r = await api("/api/wifi/join", "POST", { ssid: ssidField.value, psk: pwd.value || null });
+            say(r.connected ? "Подключено к " + r.ssid : "Не удалось подключиться к " + r.ssid, !r.connected);
+            if (r.connected) { formHost.innerHTML = ""; setTimeout(refreshTab, 2500); }
+          }),
+          button("Отмена", "", async () => { osk.hide(); formHost.innerHTML = ""; }))));
+      if (!ssid || hidden) osk.attach(ssidField); else osk.attach(pwd);
+    }
+
+    async function loadList(rescan) {
+      list.innerHTML = "";
+      list.append(h("div", { class: "row" }, h("span", { class: "grow", text: "Поиск сетей…" })));
+      let data;
+      try { data = await api("/api/wifi/networks" + (rescan ? "?rescan=true" : "")); }
+      catch (e) { list.innerHTML = ""; list.append(h("div", { class: "row" }, h("span", { class: "grow", text: e.message }))); return; }
+      list.innerHTML = "";
+      if (!data.networks.length) list.append(h("div", { class: "row" }, h("span", { class: "grow", text: "Сети не найдены" })));
+      for (const n of data.networks) {
+        list.append(h("div", { class: "row" },
+          h("span", { class: "grow" }, n.ssid, h("small", { text: bars(n.signal) + " " + n.signal + "%" + (n.secured ? " 🔒" : "") })),
+          n.in_use ? tag("подключено", "ok") : n.saved ? tag("сохранена") : null,
+          n.in_use ? null : button("Подключить", "", async () => {
+            if (n.secured && !n.saved) { showForm(n.ssid, false); return; }
+            say("Подключаюсь к " + n.ssid + "…");
+            const r = await api("/api/wifi/join", "POST", { ssid: n.ssid });
+            say(r.connected ? "Подключено к " + n.ssid : "Не удалось подключиться к " + n.ssid, !r.connected);
+            if (r.connected) setTimeout(refreshTab, 2500);
+          })));
+      }
+    }
+    wifiCard.append(
+      h("div", { class: "row" }, button("↻ Обновить", "", async () => loadList(true)), button("＋ Добавить сеть", "", async () => showForm("", true))),
+      formHost, list);
+    box.append(h("div", { class: "toast", id: "toast" }));
+    loadList(false);
+  }
+
+  async function tabAudio(box) {
+    const volCard = card("Громкость динамиков");
+    try {
+      const vol = await api("/api/audio/volume");
+      const num = h("span", { class: "vol-num", text: vol.percent + "%" });
+      const slider = h("input", { type: "range", class: "vol", min: "0", max: "100", step: "1", value: String(vol.percent) });
+      let timer = null;
+      slider.addEventListener("input", () => {
+        num.textContent = slider.value + "%";
+        clearTimeout(timer);
+        timer = setTimeout(() => api("/api/audio/volume", "POST", { percent: Number(slider.value) }).catch((e) => say(e.message, true)), 150);
+      });
+      volCard.append(h("div", { class: "vol-row" }, slider, num),
+        h("div", { class: "row" }, h("span", { class: "grow", text: "Без звука" }),
+          toggle(vol.muted, async (next) => (await api("/api/audio/volume", "POST", { muted: next })).muted)));
+    } catch (e) {
+      volCard.append(h("div", { class: "row" }, h("span", { class: "grow", text: "Регулятор недоступен: " + e.message })));
+    }
+    const wakeCard = card("Голосовой ассистент");
+    try {
+      const wake = await api("/api/voice/wake-word");
+      const sw = toggle(wake.enabled === true, async (next) => {
+        const r = await api("/api/voice/wake-word", "POST", { enabled: next });
+        return r.enabled;
+      });
+      sw.disabled = !wake.connected || typeof wake.enabled !== "boolean";
+      wakeCard.append(h("div", { class: "row" },
+        h("span", { class: "grow", text: "Wake word (слово активации)" }),
+        wake.connected ? null : tag("voice-interface не подключён", "warn"), sw));
+    } catch (e) {
+      wakeCard.append(h("div", { class: "row" }, h("span", { class: "grow", text: "Недоступно: " + e.message })));
+    }
+    box.append(volCard, wakeCard, h("div", { class: "toast", id: "toast" }));
+  }
+
+  async function tabUpdates(box) {
+    const repos = await api("/api/repos");
+    const repoCard = card("Репозитории");
+    for (const r of repos) {
+      repoCard.append(h("div", { class: "row" },
+        h("span", { class: "grow" }, r.name, h("small", { text: shortSha(r.current_sha) + (r.bad_sha ? " ⚠ плохой " + shortSha(r.bad_sha) : "") })),
+        button("Проверить", "", async () => {
+          const c = await api("/api/repos/" + r.name + "/check", "POST");
+          say(c.error ? c.error : c.pending ? r.name + ": есть обновление " + shortSha(c.remote_sha) : r.name + ": актуально", !!c.error);
+        }),
+        confirmButton("Применить", "", async () => {
+          const a = await api("/api/repos/" + r.name + "/apply", "POST");
+          say(a.error ? a.error : a.changed ? "Обновлено до " + shortSha(a.sha) + (a.restart_requested ? ", перезапуск…" : "") : "Уже актуально", !!a.error);
+        }),
+        confirmButton("Откат", "danger", async () => {
+          const b = await api("/api/repos/" + r.name + "/rollback", "POST");
+          say(b.rolled_back ? "Откат выполнен, перезапуск…" : "Откатываться некуда", !b.rolled_back);
+        })));
+    }
+    box.append(repoCard);
+
+    try {
+      const su = await api("/api/self-update");
+      const status = h("span", { class: "grow", text: "Оркестратор " + shortSha(su.current_sha) + (su.staged_sha ? " → готово " + shortSha(su.staged_sha) : "") });
+      box.append(card("Сам оркестратор", h("div", { class: "row" }, status,
+        button("Проверить", "", async () => {
+          say("Проверяю обновление…");
+          const r = await api("/api/self-update/check", "POST");
+          say(r.error ? r.error : r.staged_sha ? "Готово к установке " + shortSha(r.staged_sha) : "Обновлений нет", !!r.error);
+          await refreshTab();
+        }),
+        su.staged_sha ? confirmButton("Установить", "primary", async () => { await api("/api/self-update/apply", "POST"); say("Перезапуск…"); }) : null)));
+    } catch (e) { /* self-update is optional */ }
+
+    try {
+      const fw = await api("/api/firmware");
+      const fwCard = card("Прошивка MCU");
+      for (const t of fw) {
+        fwCard.append(h("div", { class: "row" },
+          h("span", { class: "grow" }, t.name, h("small", { text: shortSha(t.flashed_sha) })),
+          t.dirty ? tag("грязная", "err") : t.verified ? tag("проверена", "ok") : tag("не проверена", "warn"),
+          button("Проверить", "", async () => { say("Проверяю MCU…"); const r = await api("/api/firmware/" + t.name + "/reverify", "POST"); say(t.name + ": " + r.state + (r.reason ? " — " + r.reason : ""), r.state !== "done" && r.state !== "ok"); await refreshTab(); }),
+          confirmButton("Перепрошить", "danger", async () => { say("Прошиваю MCU, подождите…"); const r = await api("/api/firmware/" + t.name + "/reflash", "POST"); say(t.name + ": " + r.state + (r.reason ? " — " + r.reason : ""), r.state !== "done" && r.state !== "ok"); await refreshTab(); })));
+      }
+      if (fw.length) box.append(fwCard);
+    } catch (e) { /* no firmware targets */ }
+    box.append(h("div", { class: "toast", id: "toast" }));
+  }
+
+  async function tabLogs(box) {
+    const pre = h("div", { class: "logbox" });
+    box.append(pre);
+    const draw = async () => {
+      const data = await api("/api/logs/all?lines=150");
+      const stick = content.scrollHeight - content.scrollTop - content.clientHeight < 40;
+      pre.textContent = "";
+      for (const l of data.lines) {
+        const d = new Date(l.ts * 1000);
+        const line = h("div", { class: l.level === "error" ? "e" : l.level === "warn" ? "w" : "",
+          text: d.toTimeString().slice(0, 8) + " " + l.source + "  " + l.text });
+        pre.append(line);
+      }
+      if (stick) content.scrollTop = content.scrollHeight;
+    };
+    await draw();
+    content.scrollTop = content.scrollHeight;
+    tabTimer = setInterval(() => draw().catch(() => {}), 3000);
+  }
+
+  const TABS = [
+    { id: "system", title: "Система", render: tabSystem },
+    { id: "net", title: "Сеть", render: tabNetwork },
+    { id: "audio", title: "Звук и голос", render: tabAudio },
+    { id: "updates", title: "Обновления", render: tabUpdates },
+    { id: "logs", title: "Логи", render: tabLogs },
+  ];
+  let currentTab = TABS[0].id;
+
+  async function refreshTab() {
+    clearInterval(tabTimer);
+    const tab = TABS.find((t) => t.id === currentTab);
+    const box = document.createDocumentFragment();
+    const keepScroll = content.scrollTop;
+    try {
+      await tab.render(box);
+    } catch (e) {
+      box.append(h("div", { class: "card" }, h("div", { class: "toast err", text: "Ошибка: " + e.message })));
+    }
+    if (!unlocked) return;
+    const toastText = toastEl ? toastEl.textContent : "";
+    content.innerHTML = "";
+    content.append(box);
+    toastEl = content.querySelector("#toast");
+    if (!toastEl) { toastEl = h("div", { class: "toast" }); content.prepend(toastEl); }
+    toastEl.textContent = toastText;
+    if (tab.id !== "logs") content.scrollTop = keepScroll;
+  }
+
+  function showMain() {
+    pinBox.style.display = "none"; mainBox.style.display = "flex";
+    $("m-lock").style.display = "";
+    osk.hide();
+    tabsEl.innerHTML = "";
+    for (const t of TABS) {
+      const b = h("button", { type: "button", class: "btn m-tab" + (t.id === currentTab ? " active" : ""), text: t.title });
+      b.addEventListener("click", () => {
+        currentTab = t.id; osk.hide(); toastEl = null;
+        for (const x of tabsEl.children) x.classList.toggle("active", x === b);
+        content.innerHTML = ""; refreshTab();
+      });
+      tabsEl.append(b);
+    }
+    toastEl = null;
+    content.innerHTML = "";
+    refreshTab();
+  }
 })();
 </script>
 </body>

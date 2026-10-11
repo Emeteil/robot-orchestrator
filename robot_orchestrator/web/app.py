@@ -157,6 +157,17 @@ def create_app(
             "operator_url": context.operator_url,
         }
 
+    @app.post("/boot/api/session", include_in_schema=False)
+    def boot_session(request: Request):
+        require_loopback(request)
+        # a tunnel or reverse proxy ends up as a loopback peer too, but it always adds forwarding headers
+        if any(h in request.headers for h in ("x-forwarded-for", "forwarded", "x-real-ip")):
+            raise HTTPException(status_code=403, detail="direct loopback only")
+        if not (context and context.boot_progress and context.boot_progress.finished_at):
+            raise HTTPException(status_code=409, detail="boot is not finished yet")
+        token = auth.issue_token(jwt_secret, "boot-settings", jwt_ttl_s)
+        return {"access_token": token, "expires_in": jwt_ttl_s}
+
     @app.get("/boot/api/stream", include_in_schema=False)
     async def boot_stream(request: Request):
         require_loopback(request)

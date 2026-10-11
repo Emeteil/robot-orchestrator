@@ -254,3 +254,39 @@ async def test_boot_event_stream_marks_the_end_of_history_even_when_there_is_non
 
     assert (await anext(stream)).startswith("event: live")
     await stream.aclose()
+
+
+def _finished_app(paths):
+    progress = BootProgress(log=BootEventLog())
+    progress.finish("init", OK)
+    progress.complete()
+    context = types.SimpleNamespace(boot_progress=progress, boot_result=None, operator_url=None)
+    return create_app(paths, jwt_secret="s", context=context)
+
+
+async def test_boot_session_is_refused_until_boot_finished(app):
+    async with loopback_client(app) as c:
+        assert (await c.post("/boot/api/session")).status_code == 409
+
+
+async def test_boot_session_issues_a_token_that_works_on_the_admin_api(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app) as c:
+        response = await c.post("/boot/api/session")
+        assert response.status_code == 200
+        token = response.json()["access_token"]
+        whoami = await c.get("/api/auth/whoami", headers={"Authorization": f"Bearer {token}"})
+        assert whoami.status_code == 200
+
+
+async def test_boot_session_rejected_from_non_loopback(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app, host="203.0.113.5", port=51000) as c:
+        assert (await c.post("/boot/api/session")).status_code == 403
+
+
+async def test_boot_session_rejected_when_request_came_through_a_proxy(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app) as c:
+        response = await c.post("/boot/api/session", headers={"X-Forwarded-For": "203.0.113.5"})
+        assert response.status_code == 403

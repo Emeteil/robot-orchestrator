@@ -5,6 +5,8 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
+from robot_orchestrator.audio import volume as audio_volume
+from robot_orchestrator.network import info as network_info
 from robot_orchestrator.secrets import store as secrets_store
 from robot_orchestrator.secrets.ingest import ingest_payload
 from robot_orchestrator.secrets.protocol import SecretsPayload
@@ -12,7 +14,22 @@ from robot_orchestrator.state import store
 from robot_orchestrator.supervisor.logsink import parse_line
 from robot_orchestrator.supervisor.service import ServiceState
 from robot_orchestrator.web import auth
+from robot_orchestrator.web import voice_control
 from robot_orchestrator.web.context import AdminContext
+
+
+class WifiJoinRequest(BaseModel):
+    ssid: str
+    psk: str | None = None
+
+
+class VolumeRequest(BaseModel):
+    percent: int | None = None
+    muted: bool | None = None
+
+
+class WakeWordRequest(BaseModel):
+    enabled: bool
 
 
 class ChangePasswordRequest(BaseModel):
@@ -247,6 +264,64 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
         known = secrets_store.load_wifi_credentials(c.paths)
         connected = await asyncio.to_thread(c.wifi_manager.try_known_networks, known)
         return {"connected_ssid": connected}
+
+    @app.get("/api/network")
+    async def get_network(claims: dict = Depends(require_auth)):
+        return await asyncio.to_thread(network_info.network_info)
+
+    @app.get("/api/wifi/networks")
+    async def get_wifi_networks(rescan: bool = False, claims: dict = Depends(require_auth)):
+        c = _require(context)
+        if c.wifi_manager is None:
+            raise HTTPException(status_code=503, detail="wifi manager is not available")
+        if rescan:
+            await asyncio.to_thread(c.wifi_manager.rescan)
+        networks = await asyncio.to_thread(c.wifi_manager.list_networks)
+        saved = await asyncio.to_thread(c.wifi_manager.saved_profiles)
+        return {"networks": [{**n, "saved": n["ssid"] in saved} for n in networks]}
+
+    @app.post("/api/wifi/join")
+    async def join_wifi(body: WifiJoinRequest, claims: dict = Depends(require_auth)):
+        c = _require(context)
+        if c.wifi_manager is None:
+            raise HTTPException(status_code=503, detail="wifi manager is not available")
+        if body.psk:
+            connected = await asyncio.to_thread(c.wifi_manager.connect, body.ssid, body.psk)
+        else:
+            connected = await asyncio.to_thread(c.wifi_manager.connect_saved, body.ssid)
+        return {"connected": connected, "ssid": body.ssid}
+
+    @app.get("/api/audio/volume")
+    async def get_volume(claims: dict = Depends(require_auth)):
+        state = await asyncio.to_thread(audio_volume.get_volume)
+        if state is None:
+            raise HTTPException(status_code=503, detail="audio mixer is not available")
+        return state
+
+    @app.post("/api/audio/volume")
+    async def set_volume(body: VolumeRequest, claims: dict = Depends(require_auth)):
+        state = await asyncio.to_thread(audio_volume.set_volume, body.percent, body.muted)
+        if state is None:
+            raise HTTPException(status_code=503, detail="audio mixer is not available")
+        return state
+
+    @app.get("/api/voice/wake-word")
+    async def get_wake_word(claims: dict = Depends(require_auth)):
+        c = _require(context)
+        try:
+            status = await asyncio.to_thread(voice_control.voice_status, c)
+        except voice_control.VoiceControlError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        return {"connected": bool(status.get("connected")), "enabled": status.get("wake_word_enabled")}
+
+    @app.post("/api/voice/wake-word")
+    async def set_wake_word(body: WakeWordRequest, claims: dict = Depends(require_auth)):
+        c = _require(context)
+        try:
+            status = await asyncio.to_thread(voice_control.set_wake_word, c, body.enabled)
+        except voice_control.VoiceControlError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        return {"connected": bool(status.get("connected")), "enabled": status.get("wake_word_enabled")}
 
     @app.post("/api/settings/password")
     def change_password(body: ChangePasswordRequest, claims: dict = Depends(require_auth)):

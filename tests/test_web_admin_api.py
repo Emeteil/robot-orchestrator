@@ -410,6 +410,95 @@ async def test_wifi_connect_without_manager_returns_503(env):
         assert response.status_code == 503
 
 
+async def test_wifi_join_without_manager_returns_503(env):
+    async with env.client() as client:
+        headers = await _auth_headers(client)
+        response = await client.post("/api/wifi/join", headers=headers, json={"ssid": "x"})
+        assert response.status_code == 503
+
+
+async def test_wifi_join_uses_password_only_when_given(env):
+    calls = []
+
+    class Manager:
+        def connect(self, ssid, psk):
+            calls.append(("connect", ssid, psk))
+            return True
+
+        def connect_saved(self, ssid):
+            calls.append(("saved", ssid))
+            return True
+
+    env.context.wifi_manager = Manager()
+    async with env.client() as client:
+        headers = await _auth_headers(client)
+        await client.post("/api/wifi/join", headers=headers, json={"ssid": "a", "psk": "pw"})
+        await client.post("/api/wifi/join", headers=headers, json={"ssid": "b"})
+    assert calls == [("connect", "a", "pw"), ("saved", "b")]
+
+
+async def test_volume_endpoint_reports_and_sets(env, monkeypatch):
+    from robot_orchestrator.audio import volume
+
+    state = {"percent": 40, "muted": False}
+    monkeypatch.setattr(volume, "get_volume", lambda: dict(state))
+
+    def fake_set(percent=None, muted=None):
+        if percent is not None:
+            state["percent"] = percent
+        if muted is not None:
+            state["muted"] = muted
+        return dict(state)
+
+    monkeypatch.setattr(volume, "set_volume", fake_set)
+    async with env.client() as client:
+        headers = await _auth_headers(client)
+        assert (await client.get("/api/audio/volume", headers=headers)).json() == {"percent": 40, "muted": False}
+        response = await client.post("/api/audio/volume", headers=headers, json={"percent": 70})
+        assert response.json()["percent"] == 70
+
+
+async def test_volume_endpoint_without_mixer_returns_503(env, monkeypatch):
+    from robot_orchestrator.audio import volume
+
+    monkeypatch.setattr(volume, "get_volume", lambda: None)
+    async with env.client() as client:
+        headers = await _auth_headers(client)
+        assert (await client.get("/api/audio/volume", headers=headers)).status_code == 503
+
+
+async def test_wake_word_endpoint_proxies_to_web_core(env, monkeypatch):
+    from robot_orchestrator.web import voice_control
+
+    sent = []
+    monkeypatch.setattr(voice_control, "voice_status", lambda c: {"connected": True, "wake_word_enabled": False})
+
+    def fake_set(c, enabled):
+        sent.append(enabled)
+        return {"connected": True, "wake_word_enabled": enabled}
+
+    monkeypatch.setattr(voice_control, "set_wake_word", fake_set)
+    async with env.client() as client:
+        headers = await _auth_headers(client)
+        got = await client.get("/api/voice/wake-word", headers=headers)
+        assert got.json() == {"connected": True, "enabled": False}
+        response = await client.post("/api/voice/wake-word", headers=headers, json={"enabled": True})
+        assert response.json() == {"connected": True, "enabled": True}
+    assert sent == [True]
+
+
+async def test_wake_word_endpoint_reports_unreachable_web_core(env, monkeypatch):
+    from robot_orchestrator.web import voice_control
+
+    def boom(c):
+        raise voice_control.VoiceControlError("web-core is not reachable", 503)
+
+    monkeypatch.setattr(voice_control, "voice_status", boom)
+    async with env.client() as client:
+        headers = await _auth_headers(client)
+        assert (await client.get("/api/voice/wake-word", headers=headers)).status_code == 503
+
+
 async def test_change_password_then_relogin_with_new_password(env):
     async with env.client() as client:
         headers = await _auth_headers(client)
