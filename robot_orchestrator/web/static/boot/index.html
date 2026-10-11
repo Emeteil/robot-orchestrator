@@ -790,7 +790,6 @@
   const $ = (id) => document.getElementById(id);
   const gear = $("gear-btn"), modal = $("settings"), pinBox = $("m-pin"), mainBox = $("m-main");
   const tabsEl = $("m-tabs"), content = $("m-content"), oskEl = $("osk");
-  const PIN_KEY = "supervisor.pin";
   const IDLE_MS = 120000;
 
   function h(tag, props, ...children) {
@@ -805,27 +804,20 @@
     return el;
   }
 
-  /* ---------------- PIN storage (browser-local, on purpose) ---------------- */
-  function storeGet() { try { return JSON.parse(localStorage.getItem(PIN_KEY) || "null"); } catch (e) { return null; } }
-  function storeSet(v) { try { localStorage.setItem(PIN_KEY, JSON.stringify(v)); return true; } catch (e) { return false; } }
-  async function hashPin(pin, salt) {
-    const data = new TextEncoder().encode(salt + ":" + pin);
-    if (window.crypto && crypto.subtle) {
-      const buf = await crypto.subtle.digest("SHA-256", data);
-      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    }
-    let x = 5381;
-    for (const b of data) x = ((x * 33) ^ b) >>> 0;
-    return "d" + x.toString(16);
-  }
-
   /* ---------------- session / api ---------------- */
-  let token = null, tokenAt = 0;
+  let token = null, tokenAt = 0, sessionPin = null;
+  async function pinCall(path, body) {
+    const r = await fetch(path, { method: body === undefined ? "GET" : "POST", cache: "no-store",
+      headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    let data = {};
+    try { data = await r.json(); } catch (e) { /* empty body */ }
+    return { status: r.status, data };
+  }
   async function ensureToken(force) {
     if (!force && token && Date.now() - tokenAt < 8 * 60 * 1000) return token;
-    const r = await fetch("/boot/api/session", { method: "POST" });
-    if (!r.ok) throw new Error("нет доступа к настройкам (" + r.status + ")");
-    token = (await r.json()).access_token;
+    const r = await pinCall("/boot/api/session", { pin: sessionPin });
+    if (r.status !== 200) throw new Error("нет доступа к настройкам (" + r.status + ")");
+    token = r.data.access_token;
     tokenAt = Date.now();
     return token;
   }
@@ -872,13 +864,14 @@
     osk.hide();
     content.innerHTML = "";
     token = null;
+    sessionPin = null;
   }
   gear.addEventListener("click", openModal);
   $("m-close").addEventListener("click", closeModal);
   $("m-lock").addEventListener("click", closeModal);
 
   /* ---------------- PIN pad ---------------- */
-  let pinMode = "enter", pinBuf = "", pinFirst = "", fails = 0, lockedUntil = 0, lockTimer = null, changing = false;
+  let pinMode = "enter", pinBuf = "", pinFirst = "", lockedUntil = 0, lockTimer = null, changing = false;
   const dots = $("pin-dots").children, hint = $("pin-hint"), title = $("pin-title");
 
   function setHint(text, err) { hint.textContent = text || ""; hint.classList.toggle("err", !!err); }
@@ -898,12 +891,18 @@
     pad.append(key("⌫", backspace, "fn"));
   }
 
-  function startPinEntry() {
+  async function startPinEntry() {
     changing = false;
     pinBox.style.display = "flex"; mainBox.style.display = "none";
     $("m-lock").style.display = "none";
     pinBuf = ""; pinFirst = "";
-    pinMode = storeGet() ? "enter" : "setup1";
+    pinMode = "enter";
+    paintPinMode();
+    setHint("Проверяю…");
+    const r = await pinCall("/boot/api/pin");
+    if (r.status !== 200) { setHint("Настройки недоступны (" + r.status + ")", true); return; }
+    pinMode = r.data.set ? "enter" : "setup1";
+    if (r.data.locked_for > 0) lockedUntil = Date.now() + r.data.locked_for * 1000;
     paintPinMode();
   }
 
@@ -946,18 +945,21 @@
     const entered = pinBuf;
     pinBuf = ""; renderDots();
     if (pinMode === "enter") {
-      const saved = storeGet();
-      if (saved && (await hashPin(entered, saved.salt)) === saved.hash) { fails = 0; unlocked = true; showMain(); return; }
-      fails += 1; shake();
-      if (fails >= 5) { fails = 0; lockedUntil = Date.now() + 30000; refreshLockout(); }
-      else setHint("Неверный PIN (" + fails + "/5)", true);
+      const r = await pinCall("/boot/api/session", { pin: entered });
+      if (r.status === 200) { sessionPin = entered; token = r.data.access_token; tokenAt = Date.now(); unlocked = true; showMain(); return; }
+      shake();
+      if (r.status === 429) { lockedUntil = Date.now() + ((r.data.detail && r.data.detail.retry_after) || 30) * 1000; refreshLockout(); }
+      else if (r.status === 401) setHint("Неверный PIN. Осталось попыток: " + (r.data.detail && r.data.detail.attempts_left), true);
+      else setHint("Ошибка " + r.status, true);
     } else if (pinMode === "setup1") {
       pinFirst = entered; pinMode = "setup2"; paintPinMode();
     } else {
       if (entered !== pinFirst) { shake(); pinMode = "setup1"; paintPinMode(); setHint("PIN не совпал — введите заново", true); return; }
-      const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      const ok = storeSet({ salt, hash: await hashPin(entered, salt) });
-      if (!ok) { setHint("Не удалось сохранить PIN в браузере", true); return; }
+      const r = changing
+        ? await pinCall("/boot/api/pin/change", { current: sessionPin, new: entered })
+        : await pinCall("/boot/api/pin/setup", { pin: entered });
+      if (r.status !== 200) { setHint("Не удалось сохранить PIN (" + r.status + ")", true); return; }
+      sessionPin = entered; token = r.data.access_token || null; tokenAt = Date.now();
       unlocked = true; changing = false; showMain();
     }
   }

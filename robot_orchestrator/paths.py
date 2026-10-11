@@ -42,6 +42,10 @@ class Paths:
         return self.secrets_dir / "admin.json"
 
     @property
+    def settings_pin_file(self) -> Path:
+        return self.secrets_dir / "settings_pin.json"
+
+    @property
     def repos_dir(self) -> Path:
         return self.state_dir / "repos"
 

@@ -13,6 +13,7 @@ from robot_orchestrator import bootlog
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.web import auth, routes_api, routes_sse
 from robot_orchestrator.web.context import AdminContext
+from robot_orchestrator.web.settings_pin import PinError, PinInvalid, PinLocked, SettingsPin
 
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -21,6 +22,15 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class PinRequest(BaseModel):
+    pin: str | None = None
+
+
+class PinChangeRequest(BaseModel):
+    current: str | None = None
+    new: str
 
 
 class LoginResponse(BaseModel):
@@ -98,6 +108,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI()
     throttle = auth.LoginThrottle()
+    settings_pin = SettingsPin(paths)
     bearer = HTTPBearer(auto_error=False)
 
     def require_auth(
@@ -157,16 +168,60 @@ def create_app(
             "operator_url": context.operator_url,
         }
 
-    @app.post("/boot/api/session", include_in_schema=False)
-    def boot_session(request: Request):
+    def settings_guard(request: Request) -> None:
         require_loopback(request)
         # a tunnel or reverse proxy ends up as a loopback peer too, but it always adds forwarding headers
         if any(h in request.headers for h in ("x-forwarded-for", "forwarded", "x-real-ip")):
             raise HTTPException(status_code=403, detail="direct loopback only")
         if not (context and context.boot_progress and context.boot_progress.finished_at):
             raise HTTPException(status_code=409, detail="boot is not finished yet")
-        token = auth.issue_token(jwt_secret, "boot-settings", jwt_ttl_s)
-        return {"access_token": token, "expires_in": jwt_ttl_s}
+
+    def settings_token() -> dict:
+        return {"access_token": auth.issue_token(jwt_secret, "boot-settings", jwt_ttl_s), "expires_in": jwt_ttl_s}
+
+    def check_pin(pin: str | None) -> None:
+        try:
+            settings_pin.verify(pin or "")
+        except PinLocked as e:
+            raise HTTPException(
+                status_code=429, detail={"message": "too many attempts", "retry_after": int(e.retry_after) + 1}
+            )
+        except PinInvalid as e:
+            raise HTTPException(status_code=401, detail={"message": "wrong pin", "attempts_left": e.attempts_left})
+
+    @app.get("/boot/api/pin", include_in_schema=False)
+    def boot_pin_status(request: Request):
+        settings_guard(request)
+        return {"set": settings_pin.is_set(), "locked_for": int(settings_pin.locked_for())}
+
+    @app.post("/boot/api/pin/setup", include_in_schema=False)
+    def boot_pin_setup(body: PinRequest, request: Request):
+        settings_guard(request)
+        if settings_pin.is_set():
+            raise HTTPException(status_code=409, detail="pin is already set")
+        try:
+            settings_pin.set(body.pin)
+        except PinError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return settings_token()
+
+    @app.post("/boot/api/pin/change", include_in_schema=False)
+    def boot_pin_change(body: PinChangeRequest, request: Request):
+        settings_guard(request)
+        check_pin(body.current)
+        try:
+            settings_pin.set(body.new)
+        except PinError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return settings_token()
+
+    @app.post("/boot/api/session", include_in_schema=False)
+    def boot_session(body: PinRequest, request: Request):
+        settings_guard(request)
+        if not settings_pin.is_set():
+            raise HTTPException(status_code=409, detail="pin is not set")
+        check_pin(body.pin)
+        return settings_token()
 
     @app.get("/boot/api/stream", include_in_schema=False)
     async def boot_stream(request: Request):

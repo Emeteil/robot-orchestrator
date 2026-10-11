@@ -264,29 +264,92 @@ def _finished_app(paths):
     return create_app(paths, jwt_secret="s", context=context)
 
 
-async def test_boot_session_is_refused_until_boot_finished(app):
+async def test_boot_pin_is_refused_until_boot_finished(app):
     async with loopback_client(app) as c:
-        assert (await c.post("/boot/api/session")).status_code == 409
+        assert (await c.get("/boot/api/pin")).status_code == 409
+        assert (await c.post("/boot/api/pin/setup", json={"pin": "1234"})).status_code == 409
 
 
-async def test_boot_session_issues_a_token_that_works_on_the_admin_api(paths):
+async def test_boot_pin_setup_then_session_with_that_pin(paths):
     app = _finished_app(paths)
     async with loopback_client(app) as c:
-        response = await c.post("/boot/api/session")
+        assert (await c.get("/boot/api/pin")).json() == {"set": False, "locked_for": 0}
+        assert (await c.post("/boot/api/session", json={"pin": "1234"})).status_code == 409
+
+        setup = await c.post("/boot/api/pin/setup", json={"pin": "1234"})
+        assert setup.status_code == 200
+        assert (await c.get("/boot/api/pin")).json()["set"] is True
+        assert (await c.post("/boot/api/pin/setup", json={"pin": "9999"})).status_code == 409
+
+        response = await c.post("/boot/api/session", json={"pin": "1234"})
         assert response.status_code == 200
         token = response.json()["access_token"]
         whoami = await c.get("/api/auth/whoami", headers={"Authorization": f"Bearer {token}"})
         assert whoami.status_code == 200
 
 
-async def test_boot_session_rejected_from_non_loopback(paths):
-    app = _finished_app(paths)
-    async with loopback_client(app, host="203.0.113.5", port=51000) as c:
-        assert (await c.post("/boot/api/session")).status_code == 403
+async def test_boot_pin_survives_a_new_app_instance(paths):
+    async with loopback_client(_finished_app(paths)) as c:
+        await c.post("/boot/api/pin/setup", json={"pin": "4321"})
+
+    async with loopback_client(_finished_app(paths)) as c:
+        assert (await c.post("/boot/api/session", json={"pin": "4321"})).status_code == 200
 
 
-async def test_boot_session_rejected_when_request_came_through_a_proxy(paths):
+async def test_boot_pin_rejects_wrong_pin_and_locks_after_repeated_failures(paths):
     app = _finished_app(paths)
     async with loopback_client(app) as c:
-        response = await c.post("/boot/api/session", headers={"X-Forwarded-For": "203.0.113.5"})
-        assert response.status_code == 403
+        await c.post("/boot/api/pin/setup", json={"pin": "1234"})
+
+        first = await c.post("/boot/api/session", json={"pin": "0000"})
+        assert first.status_code == 401
+        assert first.json()["detail"]["attempts_left"] == 4
+
+        for _ in range(3):
+            await c.post("/boot/api/session", json={"pin": "0000"})
+        locked = await c.post("/boot/api/session", json={"pin": "0000"})
+        assert locked.status_code == 429
+        assert (await c.post("/boot/api/session", json={"pin": "1234"})).status_code == 429
+        assert (await c.get("/boot/api/pin")).json()["locked_for"] > 0
+
+
+async def test_boot_pin_setup_validates_format(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app) as c:
+        for bad in ("12", "12345", "abcd", ""):
+            assert (await c.post("/boot/api/pin/setup", json={"pin": bad})).status_code == 400
+
+
+async def test_boot_pin_change_needs_the_current_pin(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app) as c:
+        await c.post("/boot/api/pin/setup", json={"pin": "1234"})
+
+        assert (await c.post("/boot/api/pin/change", json={"current": "0000", "new": "5678"})).status_code == 401
+        assert (await c.post("/boot/api/pin/change", json={"current": "1234", "new": "5678"})).status_code == 200
+
+        assert (await c.post("/boot/api/session", json={"pin": "1234"})).status_code == 401
+        assert (await c.post("/boot/api/session", json={"pin": "5678"})).status_code == 200
+
+
+async def test_boot_pin_stored_hashed_not_in_clear(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app) as c:
+        await c.post("/boot/api/pin/setup", json={"pin": "2468"})
+
+    assert "2468" not in paths.settings_pin_file.read_text(encoding="utf-8")
+
+
+async def test_boot_pin_endpoints_rejected_from_non_loopback(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app, host="203.0.113.5", port=51000) as c:
+        assert (await c.get("/boot/api/pin")).status_code == 403
+        assert (await c.post("/boot/api/session", json={"pin": "1234"})).status_code == 403
+
+
+async def test_boot_pin_endpoints_rejected_when_request_came_through_a_proxy(paths):
+    app = _finished_app(paths)
+    async with loopback_client(app) as c:
+        proxied = {"X-Forwarded-For": "203.0.113.5"}
+        assert (await c.get("/boot/api/pin", headers=proxied)).status_code == 403
+        assert (await c.post("/boot/api/pin/setup", json={"pin": "1234"}, headers=proxied)).status_code == 403
