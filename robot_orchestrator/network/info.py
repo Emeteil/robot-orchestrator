@@ -50,9 +50,10 @@ def interface_kind(interface: str | None) -> str | None:
 
 
 def current_ssid() -> str | None:
-    for line in _run(["nmcli", "-t", "-f", "ACTIVE,SSID", "device", "wifi"]).splitlines():
+    # IN-USE is "*" regardless of the system locale, unlike the localized yes/no of ACTIVE
+    for line in _run(["nmcli", "-t", "-f", "IN-USE,SSID", "device", "wifi", "list"]).splitlines():
         fields = _split_terse(line)
-        if len(fields) >= 2 and fields[0] == "yes":
+        if len(fields) >= 2 and fields[0] == "*":
             return fields[1] or None
     return None
 

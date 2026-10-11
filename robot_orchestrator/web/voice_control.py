@@ -26,7 +26,7 @@ def _call(context: AdminContext, method: str, path: str, payload: dict | None = 
     base, token = _base_and_token(context)
     try:
         response = httpx.request(
-            method, base + path, params={"token": token}, json=payload, timeout=TIMEOUT_S,
+            method, base + path, headers={"Authorization": f"Bearer {token}"}, json=payload, timeout=TIMEOUT_S,
         )
     except httpx.HTTPError as e:
         raise VoiceControlError(f"web-core is not reachable: {e}", 503)
