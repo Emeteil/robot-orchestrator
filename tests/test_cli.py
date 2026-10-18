@@ -88,6 +88,33 @@ def test_mcu_client_factory_returns_null_client_when_port_unresolved(tmp_path):
     db.close()
 
 
+def test_wait_for_serial_port_returns_port_once_it_reappears():
+    answers = iter([None, None, "/dev/serial/by-id/mcu"])
+    state = {"t": 0.0}
+
+    def sleep(seconds):
+        state["t"] += seconds
+
+    port = cli._wait_for_serial_port(lambda: next(answers), 15.0, sleep=sleep, clock=lambda: state["t"])
+
+    assert port == "/dev/serial/by-id/mcu"
+    assert state["t"] == 1.0
+
+
+def test_wait_for_serial_port_gives_up_after_timeout():
+    state = {"t": 0.0, "calls": 0}
+
+    def resolver():
+        state["calls"] += 1
+        return None
+
+    def sleep(seconds):
+        state["t"] += seconds
+
+    assert cli._wait_for_serial_port(resolver, 2.0, sleep=sleep, clock=lambda: state["t"]) is None
+    assert state["calls"] == 5
+
+
 def test_qr_scanner_returns_none_when_camera_device_cannot_be_resolved(tmp_path):
     settings = cli._load_settings(_args(tmp_path))
     paths = cli._build_paths(settings, _args(tmp_path))

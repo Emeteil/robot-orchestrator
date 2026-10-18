@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -117,11 +118,20 @@ def _ensure_platformio_venv(paths: Paths) -> Path:
     return venv_path
 
 
-def _make_mcu_client_factory(paths: Paths, db: Database, target, mcu_port_resolver):
+def _wait_for_serial_port(resolver, timeout_s: float, sleep=time.sleep, clock=time.monotonic):
+    deadline = clock() + timeout_s
+    while True:
+        port = resolver()
+        if port is not None or clock() >= deadline:
+            return port
+        sleep(0.5)
+
+
+def _make_mcu_client_factory(paths: Paths, db: Database, target, mcu_port_resolver, port_wait_s: float = 0.0):
     mcu_probe_script = PACKAGE_DIR / "workers" / "mcu_probe.py"
 
     def factory():
-        port = mcu_port_resolver()
+        port = _wait_for_serial_port(mcu_port_resolver, port_wait_s)
         if port is None:
             return NullMcuClient()
 
@@ -173,7 +183,9 @@ def _build_firmware_workflows(settings: Settings, paths: Paths, journal: Journal
             target=target, paths=paths, journal=journal, db=db,
             swd_probe=hal.swd_probe, artifact_client=artifact_client,
             builder=builder, flasher=flasher,
-            mcu_client_factory=_make_mcu_client_factory(paths, db, target, mcu_port_resolver),
+            mcu_client_factory=_make_mcu_client_factory(
+                paths, db, target, mcu_port_resolver, port_wait_s=settings.hardware.mcu.reenumerate_timeout_s,
+            ),
         )
     return workflows
 
