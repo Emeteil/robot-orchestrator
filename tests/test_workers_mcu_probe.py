@@ -100,6 +100,46 @@ def test_version_none_after_successful_ping_returns_no_version_response():
     assert connection.disconnect_calls == 1
 
 
+def _make_flaky_ping_cls(failures: int, value: float):
+    state = {"calls": 0}
+
+    class FlakyPingCommand:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def execute(self, wait_response: bool = True, timeout: float = 2.0):
+            state["calls"] += 1
+            if state["calls"] <= failures:
+                raise OSError(5, "Input/output error")
+            return value
+
+    return FlakyPingCommand
+
+
+def test_io_error_after_reset_reconnects_and_retries():
+    connection = FakeConnection()
+    clock, sleep = _clock_sleep(step=0.5)
+    version_cls = _make_version_cls({"build_date": "Oct 18 2026", "build_time": "08:27:10"})
+
+    result = probe(connection, _make_flaky_ping_cls(2, 7.0), version_cls,
+                   connect_timeout_s=10.0, ping_tries=3, sleep=sleep, clock=clock)
+
+    assert result["ok"] is True
+    assert connection.connect_calls == 3
+    assert connection.disconnect_calls == 3
+
+
+def test_io_error_until_timeout_reports_io_error():
+    connection = FakeConnection()
+    clock, sleep = _clock_sleep(step=5.0)
+
+    result = probe(connection, _make_flaky_ping_cls(100, 7.0), _make_version_cls(None),
+                   connect_timeout_s=10.0, ping_tries=3, sleep=sleep, clock=clock)
+
+    assert result == {"ok": False, "reason": "io_error"}
+    assert connection.disconnect_calls == connection.connect_calls
+
+
 def test_ping_and_version_succeed_returns_ok_payload_with_real_ping_value():
     connection = FakeConnection()
     clock, sleep = _clock_sleep()

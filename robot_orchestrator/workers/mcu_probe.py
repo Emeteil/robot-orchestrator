@@ -15,41 +15,50 @@ def probe(
     clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     start = clock()
-    connected = False
+    reason = "connect_failed"
     while True:
         try:
             connection.connect()
-            connected = True
-            break
         except Exception:
             pass
+        else:
+            try:
+                return _query(connection, ping_command_cls, version_command_cls, ping_tries)
+            except Exception:
+                # right after a flash reset the old CDC node can still be open while USB re-enumerates
+                reason = "io_error"
+            finally:
+                _disconnect(connection)
         if clock() - start >= connect_timeout_s:
-            break
+            return {"ok": False, "reason": reason}
         sleep(0.5)
 
-    if not connected:
-        return {"ok": False, "reason": "connect_failed"}
 
+def _query(connection, ping_command_cls, version_command_cls, ping_tries: int) -> dict:
+    ping_ms = None
+    for _ in range(ping_tries):
+        ping_ms = ping_command_cls(connection).execute(wait_response=True, timeout=2.0)
+        if ping_ms is not None:
+            break
+    if ping_ms is None:
+        return {"ok": False, "reason": "no_ping_response"}
+
+    version = version_command_cls(connection).execute(wait_response=True, timeout=5.0)
+    if version is None:
+        return {"ok": False, "reason": "no_version_response"}
+
+    return {
+        "ok": True,
+        "ping_ms": ping_ms,
+        "version": {"build_date": version.get("build_date"), "build_time": version.get("build_time")},
+    }
+
+
+def _disconnect(connection) -> None:
     try:
-        ping_ms = None
-        for _ in range(ping_tries):
-            ping_ms = ping_command_cls(connection).execute(wait_response=True, timeout=2.0)
-            if ping_ms is not None:
-                break
-        if ping_ms is None:
-            return {"ok": False, "reason": "no_ping_response"}
-
-        version = version_command_cls(connection).execute(wait_response=True, timeout=5.0)
-        if version is None:
-            return {"ok": False, "reason": "no_version_response"}
-
-        return {
-            "ok": True,
-            "ping_ms": ping_ms,
-            "version": {"build_date": version.get("build_date"), "build_time": version.get("build_time")},
-        }
-    finally:
         connection.disconnect()
+    except Exception:
+        pass
 
 
 def main(argv: list[str] | None = None) -> int:
