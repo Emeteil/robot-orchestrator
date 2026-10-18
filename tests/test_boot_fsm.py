@@ -306,6 +306,47 @@ async def test_wifi_auto_connect_recovers_internet_and_avoids_non_prod(tmp_path)
     e.close()
 
 
+class CountingNetProbe:
+    def __init__(self, up_on_attempt: int | None):
+        self.up_on_attempt = up_on_attempt
+        self.calls = 0
+
+    def probe(self):
+        from robot_orchestrator.hal.base import ProbeResult
+
+        self.calls += 1
+        up = self.up_on_attempt is not None and self.calls >= self.up_on_attempt
+        return ProbeResult(ok=up, detail=f"attempt {self.calls}")
+
+
+async def test_network_step_waits_for_wifi_that_comes_up_late(tmp_path):
+    e = Env(tmp_path, Scenario(name="late-wifi"), secrets_required=[])
+    e.hal.net_probe = CountingNetProbe(up_on_attempt=3)
+
+    result = await e.sequence().run()
+
+    assert e.hal.net_probe.calls == 3
+    assert "internet_down" not in result.mode.reasons
+
+    await e.supervisor.stop_ordered(["app"])
+    e.close()
+
+
+async def test_network_step_gives_up_after_wait_window(tmp_path):
+    e = Env(tmp_path, Scenario(name="no-wifi"), secrets_required=[])
+    e.settings.network.wait_s = 9.0
+    e.settings.network.retry_interval_s = 3.0
+    e.hal.net_probe = CountingNetProbe(up_on_attempt=None)
+
+    result = await e.sequence().run()
+
+    assert e.hal.net_probe.calls == 4
+    assert "internet_down" in result.mode.reasons
+
+    await e.supervisor.stop_ordered(["app"])
+    e.close()
+
+
 async def test_wifi_auto_connect_not_attempted_when_no_known_networks(tmp_path):
     e = Env(tmp_path, Scenario(name="no-wifi-known"), secrets_required=[])
 

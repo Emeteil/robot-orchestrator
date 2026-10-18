@@ -41,6 +41,9 @@ network:
     - "http://connectivitycheck.gstatic.com/generate_204"
   timeout_s: 5.0
   min_ok: 1
+  # сколько ждать появления сети на старте: Wi-Fi после включения поднимается не сразу
+  wait_s: 90.0
+  retry_interval_s: 3.0
 
 secrets:
   required: ["GEMINI_API_KEY", "GITHUB_PAT"]

@@ -85,6 +85,8 @@ class NetworkConfig(BaseModel):
     )
     timeout_s: float = 5.0
     min_ok: int = 1
+    wait_s: float = 90.0
+    retry_interval_s: float = 3.0
 
 
 class SecretsConfig(BaseModel):

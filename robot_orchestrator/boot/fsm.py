@@ -241,7 +241,7 @@ class BootSequence:
         progress.finish("microphone", OK if mic_result.ok else FAILED, mic_result.detail)
 
         progress.begin("network", "проверяю выход в интернет")
-        net_result = await asyncio.to_thread(self.hal.net_probe.probe)
+        net_result = await self._wait_for_internet()
         facts.internet_ok = net_result.ok
         if not net_result.ok and self.wifi_manager is not None:
             known = secrets_store.load_wifi_credentials(self.paths)
@@ -253,6 +253,21 @@ class BootSequence:
                     facts.internet_ok = net_result.ok
         progress.finish("network", OK if facts.internet_ok else FAILED, net_result.detail)
         return camera_device
+
+    async def _wait_for_internet(self):
+        # after a cold boot NetworkManager brings Wi-Fi up ~30 s after we start, so one probe is not enough
+        cfg = self.settings.network
+        clock = self.hal.clock
+        attempts = max(1, int(cfg.wait_s // cfg.retry_interval_s) + 1)
+        started = clock.now()
+        for attempt in range(attempts):
+            net_result = await asyncio.to_thread(self.hal.net_probe.probe)
+            waited = clock.now() - started
+            if net_result.ok or attempt == attempts - 1 or waited >= cfg.wait_s:
+                return net_result
+            self.progress.update("network", f"сети пока нет, жду ({int(waited)} из {int(cfg.wait_s)} с)")
+            await asyncio.to_thread(clock.sleep, cfg.retry_interval_s)
+        return net_result
 
     async def _step_tooling(self) -> None:
         progress = self.progress
