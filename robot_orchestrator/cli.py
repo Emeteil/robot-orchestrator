@@ -29,6 +29,7 @@ from robot_orchestrator.hal.factory import build_hal
 from robot_orchestrator.hal.fake.scenario import load_scenario
 from robot_orchestrator.kiosk.cdp import CdpError, KioskController
 from robot_orchestrator.network.wifi import WifiManager
+from robot_orchestrator.network.tunnel import TunnelService
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.repos.manager import RELEASE_MARKER, RepoManager, make_repo_swap_committing_handler
 from robot_orchestrator.repos.venvs import VenvBuilder, venv_pip, venv_python
@@ -337,6 +338,9 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
     web_config = uvicorn.Config(app, host=settings.web.host, port=settings.web.port, log_config=None)
     server = uvicorn.Server(web_config)
     server_task = asyncio.create_task(server.serve())
+    tunnel_task = None
+    if settings.tunnel.enabled and not getattr(args, "simulate", None):
+        tunnel_task = asyncio.create_task(TunnelService(settings, paths).run())
 
     early_names = sequence.prepare_early_services()
     if early_names:
@@ -380,6 +384,9 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
         pass
 
     notifier.stopping()
+    if tunnel_task is not None:
+        tunnel_task.cancel()
+        await asyncio.gather(tunnel_task, return_exceptions=True)
     watchdog_task.cancel()
     if self_update_task is not None:
         self_update_task.cancel()

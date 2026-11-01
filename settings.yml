@@ -47,7 +47,17 @@ network:
 
 secrets:
   required: ["GEMINI_API_KEY", "GITHUB_PAT"]
-  optional: ["GEMINI_PROXY", "WEBCORE_ADMIN_PASSWORD", "ORCH_ADMIN_PASSWORD"]
+  optional: ["GEMINI_PROXY", "WEBCORE_ADMIN_PASSWORD", "ORCH_ADMIN_PASSWORD", "FRP_SERVER_ADDR", "FRP_TOKEN", "FRP_CA_CERT", "FRP_TLS_SERVER_NAME"]
+
+tunnel:
+  enabled: true
+  server_port: 38471
+  web_port: 42863
+  orchestrator_port: 45917
+  ssh_port: 49231
+  simulation_port: 51749
+  simulation_enabled: false
+  retry_s: 15
 
 qr:
   scan_timeout_s: 600

@@ -210,12 +210,24 @@ class SelfUpdateConfig(BaseModel):
     fetch_timeout_s: float = 120.0
 
 
+class TunnelConfig(BaseModel):
+    enabled: bool = True
+    server_port: int = Field(default=38471, ge=1024, le=65535)
+    web_port: int = Field(default=42863, ge=1024, le=65535)
+    orchestrator_port: int = Field(default=45917, ge=1024, le=65535)
+    ssh_port: int = Field(default=49231, ge=1024, le=65535)
+    simulation_port: int = Field(default=51749, ge=1024, le=65535)
+    simulation_enabled: bool = False
+    retry_s: float = Field(default=15, ge=1)
+
+
 class Settings(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     gpio: GpioConfig = Field(default_factory=GpioConfig)
     hardware: HardwareConfig = Field(default_factory=HardwareConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
+    tunnel: TunnelConfig = Field(default_factory=TunnelConfig)
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
     qr: QrConfig = Field(default_factory=QrConfig)
     updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
