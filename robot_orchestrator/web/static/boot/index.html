@@ -388,6 +388,7 @@
     stlink_missing: "нет ST-Link", mcu_missing: "MCU не отвечает", firmware_unavailable: "прошивка недоступна",
     mcu_flash_failed: "ошибка прошивки MCU", mcu_verify_failed: "MCU не прошёл проверку",
     mcu_client_incompatible: "версия MCU не совпадает", gpio_forced: "перемычка GPIO замкнута",
+    tunnel_unavailable: "туннель к VPS недоступен",
   };
   const STATUS_ICON = { pending: "○", ok: "✔", warn: "⚠", failed: "✖", skipped: "–" };
 
@@ -1101,7 +1102,8 @@
     const list = card("Сервисы");
     for (const s of services) {
       list.append(h("div", { class: "row" },
-        h("span", { class: "grow", text: s.name }), tag(s.state, stateKind(s.state)),
+        h("span", { class: "grow", text: s.name + (s.health ? " · " + s.health.detail : "") }),
+        tag(s.state, stateKind(s.state)),
         button("↻", "", async () => { say("Перезапуск " + s.name + "…"); await api("/api/services/" + s.name + "/restart", "POST"); say(s.name + " перезапущен"); await refreshTab(); }),
         s.state === "stopped" || s.state === "failed" || s.state === "skipped"
           ? button("▶", "", async () => { await api("/api/services/" + s.name + "/start", "POST"); await refreshTab(); })

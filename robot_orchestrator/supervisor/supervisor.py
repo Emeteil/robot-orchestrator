@@ -38,11 +38,11 @@ class Supervisor:
         self._lifecycle_tasks: dict[str, asyncio.Task] = {}
         self._stop_requested: set[str] = set()
 
-    def register(self, config: ServiceConfig, cwd: Path, env: dict[str, str]) -> ManagedService:
+    def register(self, config: ServiceConfig, cwd: Path, env: dict[str, str], factory=ManagedService) -> ManagedService:
         sink = LogSink(self.log_dir / "services" / f"{config.name}.log")
         sink.subscribe(lambda line, name=config.name: forward_service_line(name, line))
         self.log_sinks[config.name] = sink
-        service = ManagedService(config, cwd, env, sink)
+        service = factory(config, cwd, env, sink)
         self.services[config.name] = service
         self.backoffs[config.name] = BackoffState(policy=config.restart)
         return service
@@ -84,7 +84,8 @@ class Supervisor:
         started = time.monotonic()
         await service.start()
         self._lifecycle_tasks[name] = asyncio.create_task(self._lifecycle(name))
-        result = await wait_until_ready(service.config.ready)
+        readiness = getattr(service, "wait_ready", None)
+        result = await readiness() if readiness is not None else await wait_until_ready(service.config.ready)
         if result.ready:
             service.state = ServiceState.READY
             BOOT_LOG.emit("supervisor", f"✔ {name} готов за {time.monotonic() - started:.1f}s", "ok")

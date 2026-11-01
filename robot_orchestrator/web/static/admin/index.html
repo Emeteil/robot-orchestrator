@@ -348,13 +348,18 @@ async function loadServices() {
   for (const s of services) {
     tbody.innerHTML += `
       <tr>
-        <td>${s.name}</td><td>${s.state}</td><td>${s.pid ?? "—"}</td><td>${s.last_exit_code ?? "—"}</td>
+        <td>${s.name}</td><td class="service-state">${s.state}</td><td>${s.pid ?? "—"}</td><td>${s.last_exit_code ?? "—"}</td>
         <td>
           <button class="action" onclick="serviceAction('${s.name}','start')">Start</button>
           <button class="action secondary" onclick="serviceAction('${s.name}','restart')">Restart</button>
           <button class="action danger" onclick="serviceAction('${s.name}','stop')">Stop</button>
         </td>
       </tr>`;
+  }
+  for (let i = 0; i < services.length; i++) {
+    if (services[i].health) {
+      tbody.rows[i].querySelector(".service-state").textContent += " · " + services[i].health.detail;
+    }
   }
 }
 

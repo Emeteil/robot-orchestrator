@@ -2,6 +2,9 @@ import os
 import socket
 import subprocess
 import sys
+import time
+import asyncio
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 import httpx
@@ -19,6 +22,10 @@ from robot_orchestrator.config import (
     Settings,
     StopConfig,
 )
+from robot_orchestrator.boot.context import BootFacts
+from robot_orchestrator.boot.decision import decide_mode
+from robot_orchestrator.boot.fsm import BootResult
+from robot_orchestrator.network.tunnel import ManagedTunnelService, TunnelService
 from robot_orchestrator.firmware.workflow import FirmwareWorkflow
 from robot_orchestrator.hal.base import ArtifactRef
 from robot_orchestrator.hal.fake.fakes import (
@@ -222,6 +229,48 @@ async def test_services_list_shows_registered_service_as_ready(env):
         assert response.status_code == 200
         services = response.json()
         assert any(s["name"] == "demo" and s["state"] == "ready" and s["pid"] is not None for s in services)
+
+
+async def test_tunnel_controls_health_and_live_mode_are_available_through_api(env):
+    async def run(service):
+        service.process = Mock(returncode=None, pid=12345)
+        service._checked_at = time.monotonic()
+        service._status("connected", "все пробросы активны")
+        try:
+            await asyncio.Event().wait()
+        finally:
+            service.process = None
+            service._status("stopped", "остановлен")
+
+    facts = BootFacts(camera_ok=True, mic_ok=True, internet_ok=True, stlink_present=True,
+                      mcu_present=True, tunnel_required=True, tunnel_ok=True)
+    env.context.boot_result = BootResult("boot", decide_mode(facts), facts, {"tunnel": True})
+    service = env.supervisor.register(ServiceConfig(name="tunnel"), env.paths.run_dir, {},
+                                      factory=lambda *args: ManagedTunnelService(*args, env.settings, env.paths))
+    with patch.object(TunnelService, "run", run), \
+            patch("robot_orchestrator.network.tunnel.store.missing_required_secrets", return_value=[]):
+        try:
+            await env.supervisor.start_ordered(["tunnel"], {})
+            async with env.client() as client:
+                headers = await _auth_headers(client)
+                listing = await client.get("/api/services", headers=headers)
+                row = next(s for s in listing.json() if s["name"] == "tunnel")
+                assert row["health"]["ready"] is True
+                assert row["state"] == "ready"
+                assert service.tunnel.status_password not in listing.text
+                assert (await client.get("/api/state", headers=headers)).json()["production"] is True
+                await client.post("/api/services/tunnel/stop", headers=headers)
+                state = (await client.get("/api/state", headers=headers)).json()
+                assert state["production"] is False
+                assert state["reasons"] == ["tunnel_unavailable"]
+                assert (await client.get("/boot/api/state")).json()["production"] is False
+                assert (await client.post("/api/services/tunnel/start", headers=headers)).json()["started"] is True
+                assert (await client.post("/api/services/tunnel/restart", headers=headers)).json()["started"] is True
+                assert (await client.get("/api/state", headers=headers)).json()["production"] is True
+                service.tunnel._status("connecting", "связь потеряна")
+                assert (await client.get("/api/state", headers=headers)).json()["production"] is False
+        finally:
+            await env.supervisor.stop("tunnel")
 
 
 async def test_service_stop_then_start_round_trips(env):

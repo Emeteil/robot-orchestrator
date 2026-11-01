@@ -164,6 +164,7 @@ async def test_boot_state_exposes_operator_url_and_finished_flag_when_done(paths
     )
     context = types.SimpleNamespace(
         boot_progress=progress, boot_result=boot_result, operator_url="http://127.0.0.1:80/?token=abc",
+        current_boot=lambda: (boot_result.mode, None, boot_result.services_ready),
     )
     app = create_app(paths, jwt_secret="s", context=context)
 

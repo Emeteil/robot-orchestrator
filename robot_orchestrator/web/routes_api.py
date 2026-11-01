@@ -70,13 +70,14 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
         boot = c.boot_result
         if boot is None:
             return {"boot": None}
+        mode, facts, services_ready = c.current_boot()
         return {
             "boot_id": boot.boot_id,
-            "production": boot.mode.production,
-            "reasons": boot.mode.reasons,
-            "capabilities": boot.mode.capabilities,
-            "facts": dataclasses.asdict(boot.facts),
-            "services_ready": boot.services_ready,
+            "production": mode.production,
+            "reasons": mode.reasons,
+            "capabilities": mode.capabilities,
+            "facts": dataclasses.asdict(facts),
+            "services_ready": services_ready,
         }
 
     @app.get("/api/services")
@@ -91,6 +92,7 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
                 "pid": service.process.pid if running else None,
                 "last_exit_code": service.last_exit_code,
                 "holds_devices": service.config.holds_devices,
+                "health": service.snapshot() if hasattr(service, "snapshot") else None,
             })
         return services
 

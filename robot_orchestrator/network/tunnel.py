@@ -6,10 +6,16 @@ import platform
 import socket
 import tarfile
 import urllib.request
+import secrets as stdlib_secrets
+import time
+
+import httpx
 
 from robot_orchestrator.bootlog import BOOT_LOG
 from robot_orchestrator.secrets import store
 from robot_orchestrator.wal.atomic import atomic_write
+from robot_orchestrator.supervisor.readiness import ReadinessResult
+from robot_orchestrator.supervisor.service import ServiceState
 
 VERSION = "0.71.1"
 CHECKSUMS = {
@@ -87,12 +93,72 @@ def client_config(settings, secrets, directory, local_address):
 
 
 class TunnelService:
-    def __init__(self, settings, paths):
+    def __init__(self, settings, paths, log_sink=None):
         self.settings = settings
         self.paths = paths
         self.process = None
+        self.log_sink = log_sink
+        self.status_password = stdlib_secrets.token_urlsafe(32)
+        self.expected_proxies = set()
+        self._checked_at = 0
+        self.status = {"state": "stopped", "ready": False, "detail": "остановлен", "proxies": {}}
 
-    async def stop(self):
+    def _log(self, message, level="info"):
+        if self.log_sink is not None:
+            self.log_sink.write("stderr" if level == "warn" else "stdout", message + "\n")
+        else:
+            BOOT_LOG.emit("tunnel", message, level)
+
+    def _status(self, state, detail, proxies=None):
+        status = {"state": state, "ready": state == "connected", "detail": detail, "proxies": proxies or {}}
+        if status != self.status:
+            self._log(detail, "warn" if state == "error" else "info")
+        self.status = status
+
+    def snapshot(self):
+        status = dict(self.status)
+        if status["ready"] and (self.process is None or self.process.returncode is not None or
+                                time.monotonic() - self._checked_at > self.settings.tunnel.status_interval_s + 5):
+            status.update(ready=False, state="connecting", detail="состояние frpc не подтверждено")
+        return status
+
+    async def wait_ready(self, timeout=None):
+        deadline = time.monotonic() + (self.settings.tunnel.ready_timeout_s if timeout is None else timeout)
+        while True:
+            status = self.snapshot()
+            if status["ready"]:
+                return ReadinessResult(True, status["detail"])
+            missing = store.missing_required_secrets(self.paths, list(SECRET_KEYS))
+            if missing:
+                return ReadinessResult(False, "ожидаю секреты: " + ", ".join(missing))
+            if time.monotonic() >= deadline:
+                return ReadinessResult(False, status["detail"])
+            await asyncio.sleep(0.1)
+
+    async def check_status(self):
+        try:
+            async with httpx.AsyncClient(timeout=2, trust_env=False, auth=("tunnel", self.status_password)) as client:
+                response = await client.get(f"http://127.0.0.1:{self.settings.tunnel.status_port}/api/status")
+                response.raise_for_status()
+                data = response.json()
+            entries = data.get("tcp", [])
+            proxies = {entry["name"]: ("error" if entry.get("err") else entry.get("status", "unknown"))
+                       for entry in entries if isinstance(entry, dict)}
+            ready = bool(self.expected_proxies) and all(proxies.get(name) == "running" for name in self.expected_proxies)
+            ready = ready and not any(entry.get("err") or entry.get("error") for entry in entries
+                                      if isinstance(entry, dict) and entry.get("name") in self.expected_proxies)
+            self._checked_at = time.monotonic()
+            if ready:
+                self._status("connected", "VPS подключён, все пробросы активны", proxies)
+            else:
+                pending = sorted(name for name in self.expected_proxies if proxies.get(name) != "running")
+                self._status("connecting", "не готовы пробросы: " + ", ".join(pending), proxies)
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError):
+            self._status("connecting", "нет подтверждения от локального API frpc")
+
+    async def stop(self, update_status=True):
+        if update_status:
+            self._status("stopped", "остановлен")
         if self.process is not None:
             if self.process.returncode is None:
                 try:
@@ -115,19 +181,22 @@ class TunnelService:
                     secrets = store.load_secrets(self.paths).get("secrets", {}) or {}
                     missing = [key for key in SECRET_KEYS if not secrets.get(key)]
                     if missing:
-                        await self.stop()
+                        await self.stop(update_status=False)
                         marker = tuple(missing)
                         if previous != marker:
-                            BOOT_LOG.emit("tunnel", "ожидаю секреты: " + ", ".join(missing), "info")
+                            self._status("waiting_secrets", "ожидаю секреты: " + ", ".join(missing))
                         previous = marker
                     else:
                         address = await asyncio.to_thread(route_address, secrets["FRP_SERVER_ADDR"], self.settings.tunnel.server_port)
                         directory = self.paths.run_dir / "frp"
                         config = client_config(self.settings, secrets, directory, address)
+                        config["webServer"] = {"addr": "127.0.0.1", "port": self.settings.tunnel.status_port,
+                                               "user": "tunnel", "password": self.status_password}
                         payload = json.dumps([config, secrets["FRP_TOKEN"], secrets["FRP_CA_CERT"]]).encode()
                         fingerprint = hashlib.sha256(payload).hexdigest()
                         if fingerprint != previous or self.process is None or self.process.returncode is not None:
-                            await self.stop()
+                            await self.stop(update_status=False)
+                            self._status("installing", "подготавливаю клиент frp")
                             if pump is not None:
                                 await pump
                             binary = await asyncio.to_thread(install_client, self.paths.state_dir / "tools" / "frp")
@@ -136,6 +205,7 @@ class TunnelService:
                             atomic_write(directory / "ca.pem", secrets["FRP_CA_CERT"].encode())
                             atomic_write(directory / "frpc.json", json.dumps(config).encode())
                             BOOT_LOG.set_known_secrets(store.all_secret_values(self.paths))
+                            self.expected_proxies = {proxy["name"] for proxy in config["proxies"]}
                             self.process = await asyncio.create_subprocess_exec(
                                 str(binary), "-c", str(directory / "frpc.json"),
                                 stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
@@ -143,12 +213,14 @@ class TunnelService:
                             )
                             pump = asyncio.create_task(self._pump(self.process.stdout))
                             previous = fingerprint
-                            BOOT_LOG.emit("tunnel", "клиент frp запущен", "info")
+                            self._status("connecting", "клиент frp запущен, подключаюсь к VPS")
+                        await self.check_status()
                 except Exception as exc:
-                    await self.stop()
+                    await self.stop(update_status=False)
                     message = f"ошибка туннеля ({type(exc).__name__}); повтор через {self.settings.tunnel.retry_s:g} с"
-                    BOOT_LOG.emit("tunnel", message, "warn")
-                await asyncio.sleep(self.settings.tunnel.retry_s)
+                    self._status("error", message)
+                interval = self.settings.tunnel.status_interval_s if self.process is not None else self.settings.tunnel.retry_s
+                await asyncio.sleep(interval)
         finally:
             await self.stop()
             if pump is not None:
@@ -156,4 +228,59 @@ class TunnelService:
 
     async def _pump(self, stream):
         while line := await stream.readline():
-            BOOT_LOG.emit("tunnel", line.decode(errors="replace").rstrip(), "info")
+            self._log(line.decode(errors="replace").rstrip())
+
+
+class ManagedTunnelService:
+    def __init__(self, config, cwd, env, log_sink, settings, paths):
+        self.config = config
+        self.cwd = cwd
+        self.env = env
+        self.log_sink = log_sink
+        self.tunnel = TunnelService(settings, paths, log_sink)
+        self._state = ServiceState.STOPPED
+        self._task = None
+        self.last_exit_code = None
+
+    @property
+    def process(self):
+        return self.tunnel.process
+
+    @property
+    def state(self):
+        if self._state in (ServiceState.STARTING, ServiceState.READY):
+            return ServiceState.READY if self.tunnel.snapshot()["ready"] else ServiceState.STARTING
+        return self._state
+
+    @state.setter
+    def state(self, value):
+        self._state = value
+
+    def snapshot(self):
+        return self.tunnel.snapshot()
+
+    async def start(self):
+        self.state = ServiceState.STARTING
+        self.last_exit_code = None
+        self._task = asyncio.create_task(self.tunnel.run())
+
+    async def wait_ready(self):
+        return await self.tunnel.wait_ready()
+
+    async def wait_exit(self):
+        try:
+            await self._task
+            self.last_exit_code = 0
+        except asyncio.CancelledError:
+            self.last_exit_code = 0
+        except Exception as exc:
+            self.tunnel._log(f"задача туннеля завершилась: {type(exc).__name__}", "warn")
+            self.last_exit_code = 1
+        return self.last_exit_code
+
+    async def stop(self):
+        self.state = ServiceState.STOPPING
+        if self._task is not None:
+            self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)
+        self.state = ServiceState.STOPPED

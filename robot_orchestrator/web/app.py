@@ -155,16 +155,16 @@ def create_app(
         if context is None or context.boot_result is None:
             base.setdefault("step", "starting")
             return {"state": "booting", **base}
-        boot = context.boot_result
+        mode, _, services_ready = context.current_boot()
         finished = bool(context.boot_progress and context.boot_progress.finished_at)
         return {
             "state": "running",
             **base,
             "finished": finished,
-            "production": boot.mode.production,
-            "reasons": boot.mode.reasons,
-            "capabilities": boot.mode.capabilities,
-            "services_ready": boot.services_ready,
+            "production": mode.production,
+            "reasons": mode.reasons,
+            "capabilities": mode.capabilities,
+            "services_ready": services_ready,
             "operator_url": context.operator_url,
         }
 

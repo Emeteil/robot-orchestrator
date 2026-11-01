@@ -1,6 +1,8 @@
 import socket
 import subprocess
 import sys
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from pathlib import Path
 
 import pytest
@@ -45,6 +47,7 @@ from robot_orchestrator.secrets.protocol import SecretsPayload
 from robot_orchestrator.state import store
 from robot_orchestrator.state.store import Database
 from robot_orchestrator.supervisor.supervisor import Supervisor
+from robot_orchestrator.supervisor.readiness import ReadinessResult
 from robot_orchestrator.wal.journal import Journal
 
 BASE_ENV_OK = {"PYTHONUNBUFFERED": "1"}
@@ -121,6 +124,7 @@ class Env:
         mcu_repo = RepoConfig(name="mcu-repo", url=str(self.mcu_src), branch="main", python=None)
 
         self.settings = Settings(
+            tunnel={"enabled": False},
             gpio=GpioConfig(),
             hardware=HardwareConfig(
                 camera=CameraConfig(device="0"),
@@ -211,6 +215,22 @@ async def test_happy_path_boots_to_production_with_service_ready(env):
     assert flash_state["dirty"] == 0
 
     await env.supervisor.stop_ordered(["app"])
+
+
+@pytest.mark.parametrize("ready", [True, False])
+async def test_tunnel_readiness_gates_production(env, ready):
+    env.settings.tunnel.enabled = True
+    env.supervisor.services["tunnel"] = SimpleNamespace(
+        wait_ready=AsyncMock(return_value=ReadinessResult(ready, "VPS status")),
+    )
+    try:
+        result = await env.sequence().run()
+        assert result.mode.production is ready
+        assert result.facts.tunnel_required is True
+        assert result.services_ready["tunnel"] is ready
+        assert ("tunnel_unavailable" in result.mode.reasons) is not ready
+    finally:
+        await env.supervisor.stop_ordered(["app"])
 
 
 async def test_missing_camera_forces_non_prod(tmp_path):

@@ -58,6 +58,9 @@ tunnel:
   simulation_port: 51749
   simulation_enabled: false
   retry_s: 15
+  status_port: 17405
+  status_interval_s: 2
+  ready_timeout_s: 30
 
 qr:
   scan_timeout_s: 600

@@ -15,6 +15,8 @@ class BootFacts:
     mcu_client_incompatible: bool = False
     firmware_unavailable: bool = False
     gpio_forced: bool | None = None
+    tunnel_required: bool = False
+    tunnel_ok: bool = False
 
     def reasons(self) -> list[str]:
         reasons: list[str] = []
@@ -42,4 +44,6 @@ class BootFacts:
             reasons.append("mcu_verify_failed")
         if self.mcu_client_incompatible:
             reasons.append("mcu_client_incompatible")
+        if self.tunnel_required and not self.tunnel_ok:
+            reasons.append("tunnel_unavailable")
         return reasons

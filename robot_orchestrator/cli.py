@@ -19,7 +19,7 @@ from robot_orchestrator.boot.decision import capability
 from robot_orchestrator.boot.fsm import BootProgress, BootSequence
 from robot_orchestrator.boot.progress import OK, SKIPPED, WARN
 from robot_orchestrator.boot.hardware import resolve_camera_device, resolve_mcu_port
-from robot_orchestrator.config import Settings, load_settings
+from robot_orchestrator.config import Settings, ServiceConfig, load_settings
 from robot_orchestrator.firmware.github_artifacts import GithubArtifactClient
 from robot_orchestrator.firmware.mcu_client import SubprocessMcuClient
 from robot_orchestrator.firmware.openocd import OpenOcdFlasher
@@ -29,7 +29,7 @@ from robot_orchestrator.hal.factory import build_hal
 from robot_orchestrator.hal.fake.scenario import load_scenario
 from robot_orchestrator.kiosk.cdp import CdpError, KioskController
 from robot_orchestrator.network.wifi import WifiManager
-from robot_orchestrator.network.tunnel import TunnelService
+from robot_orchestrator.network.tunnel import ManagedTunnelService
 from robot_orchestrator.paths import Paths
 from robot_orchestrator.repos.manager import RELEASE_MARKER, RepoManager, make_repo_swap_committing_handler
 from robot_orchestrator.repos.venvs import VenvBuilder, venv_pip, venv_python
@@ -284,6 +284,8 @@ async def _watchdog_loop(notifier: SdNotifier, stop_event: asyncio.Event) -> Non
 
 
 async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Namespace) -> None:
+    if getattr(args, "simulate", None):
+        settings = settings.model_copy(update={"tunnel": settings.tunnel.model_copy(update={"enabled": False})})
     logmod.configure_logging(paths.orchestrator_log)
     logging.getLogger().addHandler(BootLogHandler())
     BOOT_LOG.emit("boot", "оркестратор запущен", "info")
@@ -339,8 +341,13 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
     server = uvicorn.Server(web_config)
     server_task = asyncio.create_task(server.serve())
     tunnel_task = None
-    if settings.tunnel.enabled and not getattr(args, "simulate", None):
-        tunnel_task = asyncio.create_task(TunnelService(settings, paths).run())
+    if settings.tunnel.enabled:
+        tunnel_config = ServiceConfig(name="tunnel", cmd=["frpc"], phase="early")
+        supervisor.register(
+            tunnel_config, paths.run_dir, {},
+            factory=lambda cfg, cwd, env, sink: ManagedTunnelService(cfg, cwd, env, sink, settings, paths),
+        )
+        tunnel_task = asyncio.create_task(supervisor.start_ordered(["tunnel"], capabilities={}))
 
     early_names = sequence.prepare_early_services()
     if early_names:
@@ -371,6 +378,8 @@ async def _run_orchestrator(settings: Settings, paths: Paths, args: argparse.Nam
         self_update_task = asyncio.create_task(asyncio.to_thread(self_update_manager.check_and_stage))
 
     order = topological_order(settings.services)
+    if settings.tunnel.enabled:
+        order.insert(0, "tunnel")
     loop = asyncio.get_running_loop()
     if os.name != "nt":
         for sig in (signal.SIGTERM, signal.SIGINT):

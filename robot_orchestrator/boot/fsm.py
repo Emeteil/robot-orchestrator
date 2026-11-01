@@ -118,6 +118,7 @@ class BootSequence:
         progress.begin("firmware")
         outcomes = await asyncio.to_thread(self._run_firmware_targets, facts)
         self._finish_firmware_step(outcomes)
+        await self._step_tunnel(facts)
 
         progress.begin("mode", "сверяю все факты")
         mode = decide_mode(facts)
@@ -133,6 +134,8 @@ class BootSequence:
         main_services = [s for s in self.settings.services if s.phase != "early"]
         order = topological_order(main_services)
         services_ready = await self.supervisor.start_ordered(order, mode.capabilities)
+        if facts.tunnel_required:
+            services_ready["tunnel"] = facts.tunnel_ok
         not_ready = [name for name, ready in services_ready.items() if not ready]
         if not_ready:
             progress.finish("services", WARN, "не поднялись: " + ", ".join(not_ready))
@@ -150,6 +153,20 @@ class BootSequence:
             )
 
         return BootResult(boot_id=boot_id, mode=mode, facts=facts, services_ready=services_ready)
+
+    async def _step_tunnel(self, facts):
+        facts.tunnel_required = self.settings.tunnel.enabled
+        if not facts.tunnel_required:
+            self.progress.skip("tunnel", "отключён в настройках")
+            return
+        self.progress.begin("tunnel", "проверяю соединение с VPS и все пробросы")
+        service = self.supervisor.services.get("tunnel")
+        if service is None:
+            self.progress.finish("tunnel", FAILED, "сервис туннеля не запущен")
+            return
+        result = await service.wait_ready()
+        facts.tunnel_ok = result.ready
+        self.progress.finish("tunnel", OK if result.ready else FAILED, result.detail)
 
     def _read_gpio(self) -> bool | None:
         gpio_cfg = self.settings.gpio

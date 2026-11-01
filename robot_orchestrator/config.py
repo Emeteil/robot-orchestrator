@@ -219,6 +219,9 @@ class TunnelConfig(BaseModel):
     simulation_port: int = Field(default=51749, ge=1024, le=65535)
     simulation_enabled: bool = False
     retry_s: float = Field(default=15, ge=1)
+    status_port: int = Field(default=17405, ge=1024, le=65535)
+    status_interval_s: float = Field(default=2, ge=0.1)
+    ready_timeout_s: float = Field(default=30, ge=0)
 
 
 class Settings(BaseModel):
