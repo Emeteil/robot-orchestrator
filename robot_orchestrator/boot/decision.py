@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from robot_orchestrator.boot.context import BootFacts
 
-VOICE_INTERFACE_KILL_REASONS = ("mic_unavailable", "internet_down", "secrets_missing:GEMINI_API_KEY")
+VOICE_INTERFACE_KILL_REASONS = ("mic_unavailable",)
 
 
 @dataclass

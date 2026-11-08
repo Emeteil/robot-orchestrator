@@ -90,9 +90,12 @@ class NetworkConfig(BaseModel):
 
 
 class SecretsConfig(BaseModel):
-    required: list[str] = Field(default_factory=lambda: ["GEMINI_API_KEY", "GITHUB_PAT"])
+    required: list[str] = Field(default_factory=lambda: ["GITHUB_PAT"])
     optional: list[str] = Field(
-        default_factory=lambda: ["GEMINI_PROXY", "WEBCORE_ADMIN_PASSWORD", "ORCH_ADMIN_PASSWORD"]
+        default_factory=lambda: [
+            "GEMINI_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_PROXY", "OPENROUTER_PROXY",
+            "WEBCORE_ADMIN_PASSWORD", "ORCH_ADMIN_PASSWORD",
+        ]
     )
 
 

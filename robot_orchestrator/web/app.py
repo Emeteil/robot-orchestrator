@@ -1,5 +1,7 @@
 import asyncio
 import json
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -106,7 +108,27 @@ async def boot_event_stream(
 def create_app(
     paths: Paths, jwt_secret: str, jwt_ttl_s: int = 600, context: AdminContext | None = None
 ) -> FastAPI:
-    app = FastAPI()
+    async def monitor_voice():
+        from robot_orchestrator.web.voice_control import voice_status, VoiceControlError
+        while True:
+            if context and context.operator_url:
+                try:
+                    context.voice_state = await asyncio.to_thread(voice_status, context)
+                    context.voice_checked_at = time.monotonic()
+                except VoiceControlError:
+                    pass
+            await asyncio.sleep(5)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        task = asyncio.create_task(monitor_voice())
+        try:
+            yield
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    app = FastAPI(lifespan=lifespan)
     throttle = auth.LoginThrottle()
     settings_pin = SettingsPin(paths)
     bearer = HTTPBearer(auto_error=False)

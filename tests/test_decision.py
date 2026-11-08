@@ -37,20 +37,20 @@ def test_mic_unavailable_disables_voice_interface():
     assert decision.capabilities["voice_interface"] is False
 
 
-def test_internet_down_disables_voice_interface():
+def test_internet_down_keeps_voice_control_for_local_profiles():
     facts = healthy_facts()
     facts.internet_ok = False
     decision = decide_mode(facts)
     assert decision.production is False
-    assert decision.capabilities["voice_interface"] is False
+    assert decision.capabilities["voice_interface"] is True
 
 
-def test_missing_gemini_key_disables_voice_interface():
+def test_missing_gemini_key_keeps_voice_control_for_other_profiles():
     facts = healthy_facts()
     facts.missing_required_secrets = ["GEMINI_API_KEY"]
     decision = decide_mode(facts)
     assert decision.production is False
-    assert decision.capabilities["voice_interface"] is False
+    assert decision.capabilities["voice_interface"] is True
 
 
 def test_missing_other_secret_keeps_voice_interface_though_nonprod():
@@ -100,3 +100,12 @@ def test_capability_helper_reads_from_decision():
     decision = decide_mode(healthy_facts())
     assert capability(decision, "kiosk_browser") is True
     assert capability(decision, "nonexistent") is False
+
+
+def test_voice_error_is_nonprod_without_stopping_voice_control():
+    facts = healthy_facts()
+    facts.voice_error = "voice_engine_failed"
+    decision = decide_mode(facts)
+    assert decision.production is False
+    assert "voice_engine_failed" in decision.reasons
+    assert decision.capabilities["voice_interface"] is True

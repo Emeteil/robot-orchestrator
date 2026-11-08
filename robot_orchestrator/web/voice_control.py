@@ -45,3 +45,7 @@ def voice_status(context: AdminContext) -> dict:
 
 def set_wake_word(context: AdminContext, enabled: bool) -> dict:
     return _call(context, "POST", "/api/voice/wake-word", {"enabled": enabled})
+
+
+def set_enabled(context: AdminContext, enabled: bool) -> dict:
+    return _call(context, "POST", "/api/voice/enabled", {"enabled": enabled})

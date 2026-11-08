@@ -1,4 +1,5 @@
 import subprocess
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from robot_orchestrator.state.store import Database
 from robot_orchestrator.wal import recovery
 from robot_orchestrator.wal.atomic import ReleasePointer
 from robot_orchestrator.wal.journal import Journal
+from robot_orchestrator.repos.venvs import VenvBuildResult
 
 
 def _git(args: list[str], cwd: Path) -> str:
@@ -63,6 +65,29 @@ def test_first_sync_creates_release_and_pointers(env, tmp_path):
     assert Path(current) == paths.repo_release("demo", sha[:12])
     assert (Path(current) / "main.py").read_text() == "print(1)\n"
     assert (Path(current) / RELEASE_MARKER).exists()
+
+
+def test_voice_runtime_failure_preserves_previous_release(env, tmp_path, monkeypatch):
+    paths, db, journal = env
+    src = tmp_path / "voice-src"
+    first = _init_repo(src, {"main.py": "print(1)\n"})
+    config = RepoConfig(name="voice-interface", url=str(src), branch="main")
+    builder = SimpleNamespace(ensure=lambda *args: VenvBuildResult(tmp_path / "venv", "hash", False))
+    mgr = RepoManager(paths, journal, db, config, venv_builder=builder)
+    assert mgr.sync().changed
+    (src / "runtime_bootstrap.py").write_text("raise RuntimeError('failed')\n")
+    _commit_all(src, "runtime")
+
+    def fail(*args, **kwargs):
+        assert args[0][-1] == "runtime_bootstrap.py"
+        raise RuntimeError("voice runtime preparation failed")
+
+    monkeypatch.setattr("robot_orchestrator.repos.manager.logged_run", fail)
+    result = mgr.sync()
+    assert not result.changed
+    assert "voice runtime preparation failed" in result.error
+    current = ReleasePointer(paths.repo_current_pointer("voice-interface")).read()
+    assert Path(current) == paths.repo_release("voice-interface", first[:12])
 
 
 def test_second_sync_with_no_new_commits_is_a_noop(env, tmp_path):

@@ -316,6 +316,20 @@ def register_routes(app: FastAPI, context: AdminContext | None, require_auth) ->
             raise HTTPException(status_code=e.status, detail=str(e))
         return {"connected": bool(status.get("connected")), "enabled": status.get("wake_word_enabled")}
 
+    @app.get("/api/voice/status")
+    async def get_voice_status(claims: dict = Depends(require_auth)):
+        try:
+            return await asyncio.to_thread(voice_control.voice_status, _require(context))
+        except voice_control.VoiceControlError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+
+    @app.post("/api/voice/enabled")
+    async def enable_voice(body: WakeWordRequest, claims: dict = Depends(require_auth)):
+        try:
+            return await asyncio.to_thread(voice_control.set_enabled, _require(context), body.enabled)
+        except voice_control.VoiceControlError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+
     @app.post("/api/voice/wake-word")
     async def set_wake_word(body: WakeWordRequest, claims: dict = Depends(require_auth)):
         c = _require(context)

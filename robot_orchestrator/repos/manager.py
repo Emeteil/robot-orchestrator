@@ -193,6 +193,11 @@ class RepoManager:
             self._sync_submodules(staging)
             self._link_persistent(staging)
             venv_result = self.venv_builder.ensure(self.config.name, staging, self.config.python)
+            if self.config.name == "voice-interface" and (staging / "runtime_bootstrap.py").is_file():
+                if venv_result is None:
+                    raise RuntimeError("voice runtime preparation requires a Python environment")
+                logged_run([str(venv_python(venv_result.path)), "runtime_bootstrap.py"],
+                           cwd=staging, source="voice-runtime", check=True)
             self._run_validate(staging, venv_result)
             self._write_release_marker(staging, target_sha, venv_result)
         except Exception as e:

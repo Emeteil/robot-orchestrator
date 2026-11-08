@@ -389,6 +389,8 @@
     mcu_flash_failed: "ошибка прошивки MCU", mcu_verify_failed: "MCU не прошёл проверку",
     mcu_client_incompatible: "версия MCU не совпадает", gpio_forced: "перемычка GPIO замкнута",
     tunnel_unavailable: "туннель к VPS недоступен",
+    voice_unavailable: "голосовой сервис недоступен",
+    voice_engine_failed: "ошибка голосового движка",
   };
   const STATUS_ICON = { pending: "○", ok: "✔", warn: "⚠", failed: "✖", skipped: "–" };
 
@@ -1212,14 +1214,27 @@
     }
     const wakeCard = card("Голосовой ассистент");
     try {
-      const wake = await api("/api/voice/wake-word");
-      const sw = toggle(wake.enabled === true, async (next) => {
-        const r = await api("/api/voice/wake-word", "POST", { enabled: next });
-        return r.enabled;
+      const wake = await api("/api/voice/status");
+      const realtime = wake.mode === "realtime";
+      const enabled = realtime ? wake.enabled : wake.wake_word_enabled;
+      const sw = toggle(enabled === true, async (next) => {
+        const r = await api(realtime ? "/api/voice/enabled" : "/api/voice/wake-word", "POST", { enabled: next });
+        return realtime ? r.enabled : r.wake_word_enabled;
       });
-      sw.disabled = !wake.connected || typeof wake.enabled !== "boolean";
+      sw.disabled = !wake.connected || typeof enabled !== "boolean";
+      const refreshVoice = async () => {
+        if (!box.isConnected) return;
+        try {
+          const state = await api("/api/voice/status");
+          const actual = state.mode === "realtime" ? state.enabled : state.wake_word_enabled;
+          sw.classList.toggle("on", actual === true);
+          sw.disabled = !state.connected || state.fresh === false || typeof actual !== "boolean";
+        } catch (e) { sw.disabled = true; }
+        if (box.isConnected) setTimeout(refreshVoice, 3000);
+      };
+      setTimeout(refreshVoice, 3000);
       wakeCard.append(h("div", { class: "row" },
-        h("span", { class: "grow", text: "Wake word (слово активации)" }),
+        h("span", { class: "grow", text: realtime ? "Модель (" + wake.engine + ")" : "Wake word (слово активации)" }),
         wake.connected ? null : tag("voice-interface не подключён", "warn"), sw));
     } catch (e) {
       wakeCard.append(h("div", { class: "row" }, h("span", { class: "grow", text: "Недоступно: " + e.message })));

@@ -44,7 +44,7 @@ class KioskController:
             async with websockets.connect(ws_url, open_timeout=self.timeout_s) as ws:
                 await asyncio.wait_for(ws.send(json.dumps(request)), timeout=self.timeout_s)
                 raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout_s)
-        except (OSError, TimeoutError, websockets.exceptions.WebSocketException) as e:
+        except (OSError, asyncio.TimeoutError, TimeoutError, websockets.exceptions.WebSocketException) as e:
             raise CdpError(f"cdp navigate failed: {e}") from e
 
         try:

@@ -17,9 +17,12 @@ class BootFacts:
     gpio_forced: bool | None = None
     tunnel_required: bool = False
     tunnel_ok: bool = False
+    voice_error: str | None = None
 
     def reasons(self) -> list[str]:
         reasons: list[str] = []
+        if self.voice_error:
+            reasons.append(self.voice_error)
         if self.gpio_forced is True:
             reasons.append("gpio_forced")
         if not self.camera_ok:

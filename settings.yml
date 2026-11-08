@@ -46,8 +46,8 @@ network:
   retry_interval_s: 3.0
 
 secrets:
-  required: ["GEMINI_API_KEY", "GITHUB_PAT"]
-  optional: ["GEMINI_PROXY", "WEBCORE_ADMIN_PASSWORD", "ORCH_ADMIN_PASSWORD", "FRP_SERVER_ADDR", "FRP_TOKEN", "FRP_CA_CERT", "FRP_TLS_SERVER_NAME"]
+  required: ["GITHUB_PAT"]
+  optional: ["GEMINI_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_PROXY", "OPENROUTER_PROXY", "WEBCORE_ADMIN_PASSWORD", "ORCH_ADMIN_PASSWORD", "FRP_SERVER_ADDR", "FRP_TOKEN", "FRP_CA_CERT", "FRP_TLS_SERVER_NAME"]
 
 tunnel:
   enabled: true
@@ -132,7 +132,7 @@ services:
     repo: voice-interface
     cmd: ["{venv}/bin/python", "main.py"]
     env: {PYTHONUNBUFFERED: "1", IZB_SETTINGS_OVERLAY: "{run}/overlays/voice-interface.yml"}
-    secret_env: [GEMINI_API_KEY, GEMINI_PROXY, MASTER_TOKEN]
+    secret_env: [GEMINI_API_KEY, GEMINI_PROXY, OPENAI_API_KEY, OPENROUTER_API_KEY, OPENROUTER_PROXY, MASTER_TOKEN]
     depends_on: [{service: web-core, condition: ready}]
     holds_devices: [microphone]
     ready: {type: http_json, url: "http://127.0.0.1:80/api/admin/health", path: "data.voice.connected", timeout_s: 180}

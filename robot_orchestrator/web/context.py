@@ -1,4 +1,5 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+import time
 from typing import Callable
 
 from robot_orchestrator.boot.fsm import BootProgress, BootResult
@@ -29,6 +30,8 @@ class AdminContext:
     boot_result: BootResult | None = None
     boot_progress: BootProgress | None = None
     operator_url: str | None = None
+    voice_state: dict = field(default_factory=dict)
+    voice_checked_at: float = 0.0
 
     def current_boot(self):
         boot = self.boot_result
@@ -41,4 +44,16 @@ class AdminContext:
             facts = replace(facts, tunnel_ok=ready)
             mode = decide_mode(facts)
             services_ready["tunnel"] = ready
+        voice_error = None
+        voice = self.supervisor.services.get("voice-interface")
+        if voice and voice.state == ServiceState.FAILED:
+            voice_error = "voice_unavailable"
+        if self.voice_state.get("protocol_version", 1) >= 2:
+            if time.monotonic() - self.voice_checked_at > 20 or not self.voice_state.get("connected"):
+                voice_error = "voice_unavailable"
+            elif self.voice_state.get("status") in ("error", "unavailable") or self.voice_state.get("fresh") is False:
+                voice_error = "voice_engine_failed"
+        if voice_error:
+            facts = replace(facts, voice_error=voice_error)
+            mode = decide_mode(facts)
         return mode, facts, services_ready

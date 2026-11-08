@@ -459,7 +459,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         print("gpio: not configured (disabled, or chip/line unset)")
 
-    tracked_secret_keys = list(dict.fromkeys([*settings.secrets.required, "GITHUB_PAT"]))
+    tracked_secret_keys = list(dict.fromkeys([*settings.secrets.required, *settings.secrets.optional, "GITHUB_PAT"]))
     for key in tracked_secret_keys:
         print(f"secret {key} present: {_get_secret(paths, key) is not None}")
 
