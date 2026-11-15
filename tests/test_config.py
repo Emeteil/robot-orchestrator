@@ -32,10 +32,12 @@ def test_deep_merge_replaces_lists_not_concatenates():
     assert merged == {"a": [9], "b": {"c": 1, "d": 2}}
 
 
-def test_voice_interface_repo_has_pip_no_deps_for_openwakeword():
+def test_voice_interface_repo_uses_python312_and_validates_dependencies():
     settings = load_settings(REPO_ROOT / "settings.yml")
     voice = next(r for r in settings.repos if r.name == "voice-interface")
-    assert voice.python.pip_no_deps == ["openwakeword"]
+    assert voice.python.version == "3.12.12"
+    assert voice.python.extra_no_deps == ["openwakeword==0.6.0"]
+    assert voice.validate_cmds == ["{venv}/bin/python runtime_check.py"]
 
 
 def test_gpio_not_configured_by_default():

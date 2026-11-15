@@ -106,8 +106,11 @@ class QrConfig(BaseModel):
 
 
 class PythonRequirementsConfig(BaseModel):
+    executable: str | None = None
+    version: str | None = None
     requirements: list[str] = Field(default_factory=lambda: ["requirements.txt"])
     pip_no_deps: list[str] = Field(default_factory=list)
+    extra_no_deps: list[str] = Field(default_factory=list)
 
 
 class RepoConfig(BaseModel):

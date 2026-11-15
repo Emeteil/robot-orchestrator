@@ -75,11 +75,12 @@ def test_voice_runtime_failure_preserves_previous_release(env, tmp_path, monkeyp
     builder = SimpleNamespace(ensure=lambda *args: VenvBuildResult(tmp_path / "venv", "hash", False))
     mgr = RepoManager(paths, journal, db, config, venv_builder=builder)
     assert mgr.sync().changed
-    (src / "runtime_bootstrap.py").write_text("raise RuntimeError('failed')\n")
+    (src / "runtime_check.py").write_text("raise RuntimeError('failed')\n")
     _commit_all(src, "runtime")
+    config.validate_cmds = ["{venv}/bin/python runtime_check.py"]
 
     def fail(*args, **kwargs):
-        assert args[0][-1] == "runtime_bootstrap.py"
+        assert args[0].endswith("runtime_check.py")
         raise RuntimeError("voice runtime preparation failed")
 
     monkeypatch.setattr("robot_orchestrator.repos.manager.logged_run", fail)

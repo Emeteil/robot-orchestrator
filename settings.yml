@@ -95,9 +95,11 @@ repos:
     url: https://github.com/Emeteil/izbushka-voice-interface.git
     branch: main
     python:
+      version: "3.12.12"
       requirements: ["requirements.txt"]
-      pip_no_deps: [openwakeword]
+      extra_no_deps: ["openwakeword==0.6.0"]
     persistent: {storage: storage}
+    validate_cmds: ["{venv}/bin/python runtime_check.py"]
     restart_on_change: [voice-interface]
   - name: com-link-RT
     url: https://github.com/Emeteil/com-link-RT.git
