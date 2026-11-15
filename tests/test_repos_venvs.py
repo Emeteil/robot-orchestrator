@@ -90,3 +90,15 @@ def test_install_failure_does_not_mark_environment_ready(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="install failed"):
         builder.ensure("voice", tmp_path, PythonRequirementsConfig())
     assert not list((tmp_path / "venvs").rglob(".complete"))
+
+
+def test_wheelhouse_does_not_duplicate_pip_http_cache(tmp_path, monkeypatch):
+    (tmp_path / "requirements.txt").write_text("package==1\n")
+    calls = []
+    monkeypatch.setattr("robot_orchestrator.repos.venvs.logged_run",
+                        lambda cmd, **kw: calls.append((cmd, kw)))
+    config = PythonRequirementsConfig(extra_no_deps=["other==1"], build_requirements=["setuptools==80.9.0"])
+    VenvBuilder(tmp_path / "venvs", tmp_path / "wheels")._build(tmp_path / "env", tmp_path, config)
+    pip_calls = [(cmd, kw) for cmd, kw in calls if "install" in cmd or "download" in cmd]
+    assert len(pip_calls) == 4
+    assert all(kw["env"]["PIP_NO_CACHE_DIR"] == "1" for cmd, kw in pip_calls)

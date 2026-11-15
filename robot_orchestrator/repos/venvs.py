@@ -128,6 +128,7 @@ class VenvBuilder:
         logged_run([executable or python_config.executable or sys.executable, "-m", "venv", "--clear", str(venv_path)],
                    source=source, check=True)
         pip = str(venv_pip(venv_path))
+        env = dict(os.environ, PIP_NO_CACHE_DIR="1")
 
         lines = _read_requirement_lines(release_dir, python_config.requirements)
         no_deps_names = {n.lower() for n in python_config.pip_no_deps}
@@ -138,7 +139,7 @@ class VenvBuilder:
             rest_lines = [arg for name in python_config.requirements for arg in ("-r", str(release_dir / name))]
 
         for line in no_deps_lines:
-            logged_run([pip, "install", "--no-deps", line], source=source, check=True)
+            logged_run([pip, "install", "--no-deps", line], env=env, source=source, check=True)
 
         if rest_lines:
             self.wheelhouse.mkdir(parents=True, exist_ok=True)
@@ -146,13 +147,13 @@ class VenvBuilder:
                 logged_run(
                     [pip, "download", "--only-binary=:all:", "-d", str(self.wheelhouse),
                      *python_config.build_requirements],
-                    cwd=release_dir, source=source, check=True,
+                    cwd=release_dir, env=env, source=source, check=True,
                 )
             logged_run([pip, "download", "-d", str(self.wheelhouse), *rest_lines],
-                       cwd=release_dir, source=source, check=True)
+                       cwd=release_dir, env=env, source=source, check=True)
             logged_run(
                 [pip, "install", "--no-index", "--find-links", str(self.wheelhouse), *rest_lines],
-                cwd=release_dir, source=source, check=True,
+                cwd=release_dir, env=env, source=source, check=True,
             )
 
         for line in no_deps_lines:
