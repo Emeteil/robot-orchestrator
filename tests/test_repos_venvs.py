@@ -16,6 +16,17 @@ def test_nested_lock_changes_environment_hash(tmp_path):
     assert compute_reqhash(tmp_path, ["requirements.txt"]) != before
 
 
+def test_repository_environment_uses_canonical_base_interpreter(tmp_path, monkeypatch):
+    (tmp_path / "requirements.txt").write_text("package==1\n")
+    base = tmp_path / "system" / "python"
+    monkeypatch.setattr(subprocess, "check_output", lambda *a, **kw: str(base) + "\n3.12.12")
+    builder = VenvBuilder(tmp_path / "venvs", tmp_path / "wheels")
+    selected = []
+    monkeypatch.setattr(builder, "_build", lambda *a, **kw: selected.append(kw["executable"]))
+    builder.ensure("voice", tmp_path, PythonRequirementsConfig(executable="old-venv-python"))
+    assert selected == [str(base.resolve())]
+
+
 def test_interpreter_and_install_options_change_environment(tmp_path, monkeypatch):
     (tmp_path / "requirements.txt").write_text("package==1\n")
     monkeypatch.setattr(subprocess, "check_output", lambda cmd, **kw: cmd[0])

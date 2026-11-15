@@ -36,7 +36,8 @@ class SelfUpdateStatus:
 
 def _default_build_venv(venv_path: Path, release_dir: Path) -> None:
     venv_path.parent.mkdir(parents=True, exist_ok=True)
-    logged_run([sys.executable, "-m", "venv", str(venv_path)], source="self-update", check=True)
+    python = str(Path(getattr(sys, "_base_executable", sys.executable)).resolve())
+    logged_run([python, "-m", "venv", str(venv_path)], source="self-update", check=True)
     pip = str(venv_pip(venv_path))
     requirements = release_dir / "requirements.txt"
     if requirements.exists():

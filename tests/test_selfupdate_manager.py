@@ -10,6 +10,17 @@ from robot_orchestrator.state.store import Database
 from robot_orchestrator.wal import recovery
 from robot_orchestrator.wal.atomic import ReleasePointer
 from robot_orchestrator.wal.journal import Journal
+from robot_orchestrator.selfupdate import manager as selfupdate_manager
+
+
+def test_self_update_uses_base_python_instead_of_previous_environment(tmp_path, monkeypatch):
+    commands = []
+    base = tmp_path / "system" / "python"
+    monkeypatch.setattr(selfupdate_manager.sys, "executable", str(tmp_path / "old-venv" / "python"))
+    monkeypatch.setattr(selfupdate_manager.sys, "_base_executable", str(base))
+    monkeypatch.setattr(selfupdate_manager, "logged_run", lambda cmd, **kw: commands.append(cmd))
+    selfupdate_manager._default_build_venv(tmp_path / "new-venv", tmp_path)
+    assert commands[0][0] == str(base.resolve())
 
 
 def _git(args: list[str], cwd: Path) -> str:

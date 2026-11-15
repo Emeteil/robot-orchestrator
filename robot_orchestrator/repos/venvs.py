@@ -86,7 +86,8 @@ class VenvBuilder:
             return None
         executable = self._python(python_config)
         identity = subprocess.check_output(
-            [executable, "-c", "import sys; print(sys.executable); print(sys.version)"], text=True, timeout=30,
+            [executable, "-c", "import sys; print(getattr(sys, '_base_executable', sys.executable)); print(sys.version)"],
+            text=True, timeout=30,
         ).strip()
         payload = json.dumps([compute_reqhash(release_dir, python_config.requirements), identity,
                               python_config.pip_no_deps, python_config.extra_no_deps, python_config.build_requirements])
@@ -96,7 +97,8 @@ class VenvBuilder:
         if marker.exists():
             return VenvBuildResult(venv_path, reqhash, reused=True)
         BOOT_LOG.emit(f"pip:{repo}", f"собираю окружение {repo} (хэш зависимостей {reqhash})", "info")
-        self._build(venv_path, release_dir, python_config, source=f"pip:{repo}", executable=executable)
+        base_python = str(Path(identity.splitlines()[0]).resolve())
+        self._build(venv_path, release_dir, python_config, source=f"pip:{repo}", executable=base_python)
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text("")
         BOOT_LOG.emit(f"pip:{repo}", f"окружение {repo} готово", "ok")
