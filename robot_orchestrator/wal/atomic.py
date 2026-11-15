@@ -3,6 +3,11 @@ import uuid
 from pathlib import Path
 
 
+def sync_filesystem() -> None:
+    if hasattr(os, "sync"):
+        os.sync()
+
+
 def fsync_dir(path: Path) -> None:
     if os.name == "nt":
         return

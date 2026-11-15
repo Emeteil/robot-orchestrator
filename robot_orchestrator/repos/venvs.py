@@ -9,6 +9,7 @@ from pathlib import Path
 
 from robot_orchestrator.bootlog import BOOT_LOG, logged_run
 from robot_orchestrator.config import PythonRequirementsConfig
+from robot_orchestrator.wal.atomic import atomic_write, sync_filesystem
 
 _NAME_SPLIT_RE = re.compile(r"[=<>!;\[\s]")
 
@@ -100,7 +101,7 @@ class VenvBuilder:
         base_python = str(Path(identity.splitlines()[0]).resolve())
         self._build(venv_path, release_dir, python_config, source=f"pip:{repo}", executable=base_python)
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text("")
+        atomic_write(marker, b"")
         BOOT_LOG.emit(f"pip:{repo}", f"окружение {repo} готово", "ok")
         return VenvBuildResult(venv_path, reqhash, reused=False)
 
@@ -166,6 +167,7 @@ class VenvBuilder:
                      "download_models(model_names=['alexa'])"],
                     source=source, check=True,
                 )
+        sync_filesystem()
 
 
 class NullVenvBuilder:

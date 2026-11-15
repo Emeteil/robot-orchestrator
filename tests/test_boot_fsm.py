@@ -1,6 +1,7 @@
 import socket
 import subprocess
 import sys
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from pathlib import Path
@@ -215,6 +216,19 @@ async def test_happy_path_boots_to_production_with_service_ready(env):
     assert flash_state["dirty"] == 0
 
     await env.supervisor.stop_ordered(["app"])
+
+
+async def test_corrupt_service_marker_does_not_crash_boot(env, monkeypatch):
+    sequence = env.sequence()
+
+    def corrupt(*args, **kwargs):
+        raise json.JSONDecodeError("empty release marker", "", 0)
+
+    monkeypatch.setattr(sequence, "_render_values", corrupt)
+    result = await sequence.run()
+    assert not result.mode.production
+    assert result.services_ready["app"] is False
+    assert result.facts.repo_update_failures
 
 
 @pytest.mark.parametrize("ready", [True, False])

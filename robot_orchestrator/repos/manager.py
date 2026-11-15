@@ -13,7 +13,7 @@ from robot_orchestrator.repos.git import rmtree_safe as _rmtree
 from robot_orchestrator.repos.venvs import NullVenvBuilder, VenvBuildResult, venv_python
 from robot_orchestrator.state import store
 from robot_orchestrator.state.store import Database
-from robot_orchestrator.wal.atomic import ReleasePointer, fsync_dir
+from robot_orchestrator.wal.atomic import ReleasePointer, fsync_dir, atomic_write, sync_filesystem
 from robot_orchestrator.wal.journal import Journal
 
 RELEASE_MARKER = ".orch-release.json"
@@ -37,7 +37,7 @@ class CheckResult:
 def make_repo_swap_committing_handler(paths: Paths):
     def handler(db: Database, row, journal: Journal) -> str:
         target_sha = row.payload["target_sha"]
-        release_dir = paths.repo_release(row.subject, target_sha[:12])
+        release_dir = Path(row.payload.get("release_path") or paths.repo_release(row.subject, target_sha[:12]))
         marker = release_dir / RELEASE_MARKER
 
         if not marker.exists():
@@ -138,7 +138,7 @@ class RepoManager:
         state = store.get_repo_state(self.db.conn, self.config.name) or {}
         previous_release = state.get("previous_release")
         previous_sha = state.get("previous_sha")
-        if not previous_release or not (Path(previous_release) / RELEASE_MARKER).exists():
+        if not self._release_is_valid(previous_release):
             return False
 
         op_id = uuid.uuid4().hex
@@ -171,7 +171,11 @@ class RepoManager:
     def _release_is_valid(self, release_path: str | None) -> bool:
         if not release_path:
             return False
-        return (Path(release_path) / RELEASE_MARKER).exists()
+        try:
+            marker = json.loads((Path(release_path) / RELEASE_MARKER).read_text(encoding="utf-8"))
+            return isinstance(marker, dict) and marker.get("repo") == self.config.name and bool(marker.get("sha"))
+        except (OSError, ValueError):
+            return False
 
     def _record_failure(self, error: str) -> None:
         with self.db.transaction() as conn:
@@ -180,11 +184,14 @@ class RepoManager:
     def _stage_and_commit(self, mirror: Path, target_sha: str, prior_state: dict) -> SyncResult:
         op_id = uuid.uuid4().hex
         staging = self.paths.repo_staging(self.config.name, op_id)
+        release_dir = self.paths.repo_release(self.config.name, target_sha[:12])
+        if release_dir.exists():
+            release_dir = self.paths.repo_release(self.config.name, target_sha[:12] + "-" + op_id[:8])
         BOOT_LOG.emit(self.config.name, f"готовлю релиз {target_sha[:12]}: клонирование, подмодули, окружение", "info")
         self.journal.begin(
             "repo_swap",
             self.config.name,
-            {"target_sha": target_sha, "staging_paths": [str(staging)]},
+            {"target_sha": target_sha, "staging_paths": [str(staging)], "release_path": str(release_dir)},
             op_id=op_id,
         )
         try:
@@ -208,7 +215,6 @@ class RepoManager:
             return SyncResult(changed=False, sha=None, error=error_message)
 
         self.journal.prepared(op_id)
-        release_dir = self.paths.repo_release(self.config.name, target_sha[:12])
         release_dir.parent.mkdir(parents=True, exist_ok=True)
         self.journal.committing(op_id)
 
@@ -307,7 +313,8 @@ class RepoManager:
             "venv_hash": venv_result.reqhash if venv_result else None,
             "created_at": time.time(),
         }
-        (staging / RELEASE_MARKER).write_text(json.dumps(marker), encoding="utf-8")
+        sync_filesystem()
+        atomic_write(staging / RELEASE_MARKER, json.dumps(marker).encode("utf-8"))
 
     def committing_handler(self):
         return make_repo_swap_committing_handler(self.paths)

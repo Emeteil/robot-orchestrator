@@ -15,7 +15,7 @@ from robot_orchestrator.paths import Paths
 from robot_orchestrator.repos import git
 from robot_orchestrator.repos.venvs import venv_pip, venv_python
 from robot_orchestrator.state.store import Database
-from robot_orchestrator.wal.atomic import ReleasePointer, fsync_dir
+from robot_orchestrator.wal.atomic import ReleasePointer, fsync_dir, atomic_write, sync_filesystem
 from robot_orchestrator.wal.journal import Journal
 
 SELF_RELEASE_MARKER = ".orch-self-release.json"
@@ -160,9 +160,9 @@ class SelfUpdateManager:
                 self._record_error(detail)
                 return SelfUpdateStatus(current_sha=current_sha, staged_sha=None, staged_at=None, error=detail)
 
-            (release_dir / SELF_RELEASE_MARKER).write_text(
-                json.dumps({"sha": target_sha, "created_at": time.time()}), encoding="utf-8"
-            )
+            sync_filesystem()
+            atomic_write(release_dir / SELF_RELEASE_MARKER,
+                         json.dumps({"sha": target_sha, "created_at": time.time()}).encode("utf-8"))
         except Exception as e:
             git.rmtree_safe(staging)
             git.rmtree_safe(release_dir)

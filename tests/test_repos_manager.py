@@ -67,6 +67,25 @@ def test_first_sync_creates_release_and_pointers(env, tmp_path):
     assert (Path(current) / RELEASE_MARKER).exists()
 
 
+@pytest.mark.parametrize("payload", ["", "{", "[]", "null"])
+def test_corrupt_marker_is_replaced_without_destroying_current_release(env, tmp_path, payload):
+    paths, db, journal = env
+    src = tmp_path / "source"
+    sha = _init_repo(src, {"main.py": "print(1)\n"})
+    mgr = RepoManager(paths, journal, db, RepoConfig(name="demo", url=str(src)))
+    assert mgr.sync().changed
+    old = Path(ReleasePointer(paths.repo_current_pointer("demo")).read())
+    (old / RELEASE_MARKER).write_text(payload)
+    assert not mgr._release_is_valid(str(old))
+    result = mgr.sync()
+    assert result.changed and result.sha == sha
+    current = ReleasePointer(paths.repo_current_pointer("demo")).read()
+    assert Path(current) != old
+    assert mgr._release_is_valid(current)
+    assert (old / RELEASE_MARKER).read_text() == payload
+    assert not mgr.rollback()
+
+
 def test_voice_runtime_failure_preserves_previous_release(env, tmp_path, monkeypatch):
     paths, db, journal = env
     src = tmp_path / "voice-src"

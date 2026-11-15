@@ -129,11 +129,20 @@ class BootSequence:
 
         progress.begin("services", "запускаю по цепочке зависимостей")
         mcu_port = resolve_mcu_port(self.settings.hardware.mcu, self.hal.usb_inventory)
-        self._prepare_services(mode, camera_device, mcu_port)
+        failed_preparation = self._prepare_services(mode, camera_device, mcu_port)
+        if failed_preparation:
+            for service in self.settings.services:
+                if service.name in failed_preparation and service.repo not in facts.repo_update_failures:
+                    facts.repo_update_failures.append(service.repo or service.name)
+            mode = decide_mode(facts)
+            progress.finish("mode", WARN, "NON-PROD — " + ", ".join(mode.reasons))
 
         main_services = [s for s in self.settings.services if s.phase != "early"]
         order = topological_order(main_services)
-        services_ready = await self.supervisor.start_ordered(order, mode.capabilities)
+        services_ready = await self.supervisor.start_ordered(
+            [name for name in order if name not in failed_preparation], mode.capabilities,
+        )
+        services_ready.update({name: False for name in failed_preparation})
         if facts.tunnel_required:
             services_ready["tunnel"] = facts.tunnel_ok
         not_ready = [name for name, ready in services_ready.items() if not ready]
@@ -444,11 +453,17 @@ class BootSequence:
                 env[secret_key] = str(values[f"secret.{secret_key}"])
         return env
 
-    def _prepare_services(self, mode: ModeDecision, camera_device: str | None, mcu_port: str | None) -> None:
+    def _prepare_services(self, mode: ModeDecision, camera_device: str | None, mcu_port: str | None) -> set[str]:
+        failed = set()
         for service in self.settings.services:
             if service.phase == "early":
                 continue
-            self._register_service(service, mode, camera_device, mcu_port)
+            try:
+                self._register_service(service, mode, camera_device, mcu_port)
+            except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
+                failed.add(service.name)
+                BOOT_LOG.emit(service.name, f"не удалось подготовить сервис: {error}", "error")
+        return failed
 
     def _register_service(
         self, service, mode: ModeDecision, camera_device: str | None, mcu_port: str | None
