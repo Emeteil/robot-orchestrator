@@ -98,6 +98,7 @@ repos:
       version: "3.12.12"
       requirements: ["requirements.txt"]
       extra_no_deps: ["openwakeword==0.6.0"]
+      build_requirements: ["setuptools==80.9.0", "wheel==0.45.1"]
     persistent: {storage: storage}
     validate_cmds: ["{venv}/bin/python runtime_check.py"]
     restart_on_change: [voice-interface]

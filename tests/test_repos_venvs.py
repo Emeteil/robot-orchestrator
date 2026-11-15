@@ -31,6 +31,25 @@ def test_interpreter_and_install_options_change_environment(tmp_path, monkeypatc
     assert builder.ensure("voice", tmp_path, config).reqhash != first.reqhash
 
 
+def test_build_dependencies_are_cached_before_offline_install(tmp_path, monkeypatch):
+    (tmp_path / "requirements.txt").write_text("docopt==0.6.2\n")
+    commands = []
+    monkeypatch.setattr("robot_orchestrator.repos.venvs.logged_run",
+                        lambda cmd, **kw: commands.append(cmd))
+    builder = VenvBuilder(tmp_path / "venvs", tmp_path / "wheels")
+    config = PythonRequirementsConfig(build_requirements=["setuptools==80.9.0", "wheel==0.45.1"])
+    builder._build(tmp_path / "env", tmp_path, config)
+    build_index = next(i for i, cmd in enumerate(commands) if "setuptools==80.9.0" in cmd)
+    install_index = next(i for i, cmd in enumerate(commands) if "--no-index" in cmd)
+    assert build_index < install_index
+    assert "--only-binary=:all:" in commands[build_index]
+    monkeypatch.setattr(subprocess, "check_output", lambda *a, **kw: "python312")
+    monkeypatch.setattr(builder, "_build", lambda *a, **kw: None)
+    first = builder.ensure("voice", tmp_path, config)
+    config.build_requirements.append("other-build-package==1")
+    assert builder.ensure("voice", tmp_path, config).reqhash != first.reqhash
+
+
 def test_build_uses_selected_python_and_preserves_lock_arguments(tmp_path, monkeypatch):
     (tmp_path / "requirements.txt").write_text("-r lock.txt\n")
     commands = []

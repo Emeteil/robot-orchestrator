@@ -37,6 +37,7 @@ def test_voice_interface_repo_uses_python312_and_validates_dependencies():
     voice = next(r for r in settings.repos if r.name == "voice-interface")
     assert voice.python.version == "3.12.12"
     assert voice.python.extra_no_deps == ["openwakeword==0.6.0"]
+    assert voice.python.build_requirements == ["setuptools==80.9.0", "wheel==0.45.1"]
     assert voice.validate_cmds == ["{venv}/bin/python runtime_check.py"]
 
 

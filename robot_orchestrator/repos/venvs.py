@@ -89,7 +89,7 @@ class VenvBuilder:
             [executable, "-c", "import sys; print(sys.executable); print(sys.version)"], text=True, timeout=30,
         ).strip()
         payload = json.dumps([compute_reqhash(release_dir, python_config.requirements), identity,
-                              python_config.pip_no_deps, python_config.extra_no_deps])
+                              python_config.pip_no_deps, python_config.extra_no_deps, python_config.build_requirements])
         reqhash = hashlib.sha256(payload.encode()).hexdigest()[:16]
         venv_path = self.venvs_root / repo / reqhash
         marker = venv_path / ".complete"
@@ -142,6 +142,12 @@ class VenvBuilder:
 
         if rest_lines:
             self.wheelhouse.mkdir(parents=True, exist_ok=True)
+            if python_config.build_requirements:
+                logged_run(
+                    [pip, "download", "--only-binary=:all:", "-d", str(self.wheelhouse),
+                     *python_config.build_requirements],
+                    cwd=release_dir, source=source, check=True,
+                )
             logged_run([pip, "download", "-d", str(self.wheelhouse), *rest_lines],
                        cwd=release_dir, source=source, check=True)
             logged_run(
